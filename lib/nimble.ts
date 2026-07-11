@@ -99,7 +99,11 @@ export async function searchProviders(input: {
     no_html: true,
   });
 
-  const rows = object(object(object(payload).parsing).entities).SearchResult;
+  const response = object(payload);
+  const parsing = Object.keys(object(response.parsing)).length
+    ? object(response.parsing)
+    : object(object(response.data).parsing);
+  const rows = object(parsing.entities).SearchResult;
   const providers = (Array.isArray(rows) ? rows : [])
     .map(normalizeProvider)
     .filter((provider): provider is ProviderResult => provider !== null)
