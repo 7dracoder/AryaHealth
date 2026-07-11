@@ -15,7 +15,6 @@ export async function POST(request: Request) {
       sms: input.consent.sms,
     });
     return Response.json({
-      status: "code_sent",
       ...result,
       next: "Enter the SMS code to finish registration. Calling and chat unlock after verification.",
     });
