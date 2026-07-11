@@ -10,12 +10,13 @@ import {
 } from "@/db/repository";
 import { encryptJson, patientKey, patientLabel, safeEqual, sha256 } from "./crypto";
 import { getEnv } from "./runtime-env";
-import { sendSms } from "./twilio";
+import { checkVerificationCode, sendSms, sendVerificationCode } from "./twilio";
 
 export const SESSION_COOKIE = "voia_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 14;
 const OTP_TTL_MS = 10 * 60 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
+const TWILIO_VERIFY_MARKER = "twilio-verify";
 
 export type PatientSession = {
   patientKey: string;
@@ -117,34 +118,93 @@ export async function startRegistration(input: {
 }) {
   await purgeExpiredOtpChallenges();
   const hash = await phoneHash(input.phone);
-  const code = generateOtpCode();
-  const codeHash = await sha256(`${sessionSecret()}|otp|${hash}|${code}`);
-  await replaceOtpChallenge({
-    id: crypto.randomUUID(),
-    phoneHash: hash,
-    codeHash,
-    expiresAt: Date.now() + OTP_TTL_MS,
-    attempts: 0,
-    careDataGranted: input.careData,
-    screeningGranted: input.screening,
-    smsGranted: input.sms,
-    email: input.email || undefined,
-  });
+  const demoMode = getEnv("PRODUCT_MODE") !== "live";
+  let sent = false;
+  let status = "not_sent";
+  let channel: "twilio-verify" | "direct-sms" | "demo" = "demo";
+  let demoCode: string | undefined;
+  let deliveryNote: string | undefined;
 
-  const smsResult = await sendSms(
-    input.phone,
-    `Arya Health code: ${code}. Use it to finish website registration before calling Voia. Expires in 10 minutes.`,
-  );
-
-  const demoFallback = getEnv("PRODUCT_MODE") !== "live" && !smsResult.configured;
-  if (!smsResult.configured && !demoFallback) {
-    throw new Error("SMS verification is not configured");
+  try {
+    const verifyResult = await sendVerificationCode(input.phone);
+    if (verifyResult.configured) {
+      await replaceOtpChallenge({
+        id: crypto.randomUUID(),
+        phoneHash: hash,
+        codeHash: TWILIO_VERIFY_MARKER,
+        expiresAt: Date.now() + OTP_TTL_MS,
+        attempts: 0,
+        careDataGranted: input.careData,
+        screeningGranted: input.screening,
+        smsGranted: input.sms,
+        email: input.email || undefined,
+      });
+      sent = true;
+      status = verifyResult.status;
+      channel = "twilio-verify";
+    }
+  } catch (error) {
+    if (!demoMode) throw error;
+    deliveryNote =
+      error instanceof Error
+        ? error.message
+        : "Twilio Verify could not send the code. Use the on-screen code below.";
   }
+
+  if (!sent) {
+    const code = generateOtpCode();
+    const codeHash = await sha256(`${sessionSecret()}|otp|${hash}|${code}`);
+    await replaceOtpChallenge({
+      id: crypto.randomUUID(),
+      phoneHash: hash,
+      codeHash,
+      expiresAt: Date.now() + OTP_TTL_MS,
+      attempts: 0,
+      careDataGranted: input.careData,
+      screeningGranted: input.screening,
+      smsGranted: input.sms,
+      email: input.email || undefined,
+    });
+
+    if (demoMode) {
+      demoCode = code;
+      channel = "demo";
+      status = "demo_code";
+      deliveryNote ??=
+        "SMS delivery may be blocked until Twilio A2P 10DLC registration is complete. Use the on-screen code below.";
+    }
+
+    try {
+      const smsResult = await sendSms(
+        input.phone,
+        `Arya Health code: ${code}. Use it to finish website registration before calling Voia. Expires in 10 minutes.`,
+      );
+      if (smsResult.configured) {
+        sent = true;
+        status = smsResult.status;
+        channel = "direct-sms";
+      } else if (!demoMode) {
+        throw new Error("SMS verification is not configured");
+      }
+    } catch (error) {
+      if (!demoMode) throw error;
+      deliveryNote =
+        error instanceof Error
+          ? error.message
+          : "Direct SMS failed. Use the on-screen code below.";
+      if (!demoCode) demoCode = code;
+      channel = "demo";
+      status = "demo_code";
+    }
+  }
+
   return {
-    sent: smsResult.configured,
-    status: smsResult.configured ? smsResult.status : "demo_code",
+    sent,
+    status,
+    channel,
     phoneLast4: patientLabel(input.phone).slice(1),
-    ...(demoFallback ? { demoCode: code } : {}),
+    ...(demoCode ? { demoCode } : {}),
+    ...(deliveryNote ? { deliveryNote } : {}),
   };
 }
 
@@ -158,7 +218,15 @@ export async function verifyRegistration(input: { phone: string; code: string })
   }
 
   const expected = await sha256(`${sessionSecret()}|otp|${hash}|${input.code.trim()}`);
-  if (!safeEqual(expected, challenge.codeHash)) {
+  let verified = false;
+  if (challenge.codeHash === TWILIO_VERIFY_MARKER) {
+    const verifyResult = await checkVerificationCode(input.phone, input.code);
+    verified = verifyResult.approved;
+  } else if (safeEqual(expected, challenge.codeHash)) {
+    verified = true;
+  }
+
+  if (!verified) {
     await incrementOtpAttempts(challenge.id, challenge.attempts + 1);
     throw new Error("Incorrect verification code.");
   }

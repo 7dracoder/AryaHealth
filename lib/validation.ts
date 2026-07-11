@@ -13,6 +13,7 @@ export const specialties = [
 export const providerSearchSchema = z.object({
   location: z.string().trim().min(2).max(120),
   specialty: z.enum(specialties),
+  insurance: z.string().trim().min(2).max(120).optional(),
 });
 
 export const providerSchema = z.object({
@@ -37,6 +38,7 @@ export const appointmentRequestSchema = z.object({
   reason: z.string().trim().min(3).max(1000),
   reasonCategory: z.string().trim().min(2).max(80).default("General consultation"),
   issueKind: z.enum(issueKinds),
+  insurance: z.string().trim().min(2).max(120),
   modality: z.enum(["in_person", "telehealth", "either"]),
   requestedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   timeWindow: z.enum(["morning", "afternoon", "evening", "anytime"]),

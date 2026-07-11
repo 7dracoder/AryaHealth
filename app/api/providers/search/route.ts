@@ -10,8 +10,9 @@ export async function POST(request: Request) {
     const result = await searchProviders(input);
     return Response.json({
       ...result,
-      notice:
-        "Listings come from public sources. Availability and network participation are not verified.",
+      notice: input.insurance
+        ? "Listings are ranked by a demo insurance fit estimate. Confirm network status with the office."
+        : "Listings come from public sources. Add insurance to see likely network fit.",
     });
   } catch (error) {
     if (error instanceof RateLimitError) return rateLimitResponse(error);

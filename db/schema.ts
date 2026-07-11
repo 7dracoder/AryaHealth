@@ -21,6 +21,7 @@ export const appointmentRequests = sqliteTable(
     timeWindow: text("time_window").notNull(),
     timezone: text("timezone").notNull(),
     reasonCategory: text("reason_category").notNull(),
+    insurance: text("insurance").notNull().default(""),
     issueKind: text("issue_kind").notNull().default("new"),
     status: text("status").notNull().default("pending_provider"),
     source: text("source").notNull().default("web"),

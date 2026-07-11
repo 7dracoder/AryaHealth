@@ -94,12 +94,16 @@ const specialty = {
 const tools = [
   webhookTool({
     name: "search_providers",
-    description: "Find a small set of public doctor or clinic listings by specialty and coarse location. Does not check appointment availability.",
+    description: "Find a small set of public doctor or clinic listings by specialty, coarse location, and optional insurance for likely network fit ranking.",
     path: "/api/tools/providers/search",
     required: ["location", "specialty"],
     properties: {
       location: { type: "string", description: "City and state only. Never include patient identity or symptoms." },
       specialty,
+      insurance: {
+        type: "string",
+        description: "Patient's insurance carrier or plan name. Used only for local demo network-fit ranking.",
+      },
     },
     responseFilters: ["providers", "searchedAt", "source", "availability", "instruction"],
   }),
@@ -107,10 +111,11 @@ const tools = [
     name: "request_appointment",
     description: "Save a pending provider-contact request after explicit patient confirmation and care-data consent. This does not book a confirmed slot. Do not collect patient name.",
     path: "/api/tools/appointments/request",
-    required: ["phone", "location", "specialty", "reason", "reasonCategory", "issueKind", "modality", "requestedDate", "timeWindow", "timezone", "consent"],
+    required: ["phone", "insurance", "location", "specialty", "reason", "reasonCategory", "issueKind", "modality", "requestedDate", "timeWindow", "timezone", "consent"],
     properties: {
       phone: { type: "string", description: "Confirmed E.164 phone, such as +12125551234." },
       email: { type: "string", description: "Optional confirmed email." },
+      insurance: { type: "string", description: "Patient's insurance carrier or plan name." },
       location: { type: "string", description: "Patient city and state." },
       specialty,
       reason: { type: "string", description: "Brief patient-stated visit reason used for emergency gate; not stored as free text." },

@@ -13,7 +13,9 @@ export async function POST(request: Request) {
     return Response.json({
       ...result,
       availability: "unknown",
-      instruction: "Present at most four options. Never say a slot is available or booked.",
+      instruction: input.insurance
+        ? "Present at most four options. Prefer likely_accepts listings first and say insurance fit is a demo estimate."
+        : "Present at most four options. Never say a slot is available or booked.",
     });
   } catch (error) {
     return errorResponse(error, "Provider search failed");

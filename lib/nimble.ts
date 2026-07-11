@@ -1,4 +1,5 @@
 import { getEnv } from "./runtime-env";
+import { annotateProvidersWithInsurance } from "./insurance";
 import type { ProviderResult } from "./validation";
 
 const NIMBLE_BASE_URL = "https://sdk.nimbleway.com/v1";
@@ -87,6 +88,7 @@ async function nimbleFetch(path: string, body: UnknownRecord): Promise<unknown> 
 export async function searchProviders(input: {
   location: string;
   specialty: string;
+  insurance?: string;
 }): Promise<{ providers: ProviderResult[]; searchedAt: string; source: string }> {
   const location = input.location.replace(/[\u0000-\u001f<>]/g, " ").replace(/\s+/g, " ").trim().slice(0, 120);
   const specialty = input.specialty.replace(/[^a-zA-Z\s,-]/g, "").trim().slice(0, 80);
@@ -104,10 +106,13 @@ export async function searchProviders(input: {
     ? object(response.parsing)
     : object(object(response.data).parsing);
   const rows = object(parsing.entities).SearchResult;
-  const providers = (Array.isArray(rows) ? rows : [])
-    .map(normalizeProvider)
-    .filter((provider): provider is ProviderResult => provider !== null)
-    .slice(0, 6);
+  const providers = annotateProvidersWithInsurance(
+    (Array.isArray(rows) ? rows : [])
+      .map(normalizeProvider)
+      .filter((provider): provider is ProviderResult => provider !== null)
+      .slice(0, 6),
+    input.insurance,
+  );
 
   return {
     providers,

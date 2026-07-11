@@ -71,6 +71,7 @@ export async function insertNotification(input: {
   providerMessageId?: string;
   status: string;
   errorCode?: string;
+  channel?: string;
 }): Promise<void> {
   if (usesMemoryStorage()) {
     return memoryInsertNotification(input);
@@ -80,7 +81,7 @@ export async function insertNotification(input: {
   await db.insert(notifications).values({
     id: crypto.randomUUID(),
     appointmentId: input.appointmentId,
-    channel: "sms",
+    channel: input.channel ?? "sms",
     providerMessageId: input.providerMessageId,
     status: input.status,
     errorCode: input.errorCode,

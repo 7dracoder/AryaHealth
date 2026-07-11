@@ -10,6 +10,7 @@ const validRequest = {
   reason: "Routine annual visit",
   reasonCategory: "Primary care",
   issueKind: "new",
+  insurance: "Blue Cross PPO",
   modality: "either",
   requestedDate: "2030-01-01",
   timeWindow: "morning",

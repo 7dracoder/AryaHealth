@@ -84,6 +84,7 @@ export async function ensureDatabase(): Promise<void> {
             time_window TEXT NOT NULL,
             timezone TEXT NOT NULL,
             reason_category TEXT NOT NULL,
+            insurance TEXT NOT NULL DEFAULT '',
             issue_kind TEXT NOT NULL DEFAULT 'new',
             status TEXT NOT NULL DEFAULT 'pending_provider',
             source TEXT NOT NULL DEFAULT 'web',
@@ -164,6 +165,7 @@ export async function ensureDatabase(): Promise<void> {
         db,
         "ALTER TABLE appointment_requests ADD COLUMN issue_kind TEXT NOT NULL DEFAULT 'new'",
       );
+      await addColumnIfMissing(db, "ALTER TABLE appointment_requests ADD COLUMN insurance TEXT NOT NULL DEFAULT ''");
     } catch (error) {
       schemaReady = null;
       throw error;

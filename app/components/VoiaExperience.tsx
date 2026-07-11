@@ -30,6 +30,20 @@ import type { FormEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 
 const agentId = "agent_5501kx8wda1pendvh6xvme7fxn78";
+const voiaPhoneE164 = "+16056367296";
+const voiaPhoneDisplay = "(605) 636-7296";
+
+function CallToBookBanner({ compact = false }: { compact?: boolean }) {
+  return (
+    <a className={`call-to-book${compact ? " compact" : ""}`} href={`tel:${voiaPhoneE164}`}>
+      <Phone size={compact ? 16 : 18} />
+      <span>
+        <strong>{compact ? "Call to book" : "Call to book an appointment"}</strong>
+        <small>{voiaPhoneDisplay} · Use your registered phone number</small>
+      </span>
+    </a>
+  );
+}
 
 const specialtyOptions = [
   "Primary care",
@@ -56,6 +70,8 @@ type Provider = {
   reviewCount?: number;
   categories: string[];
   availability: "unknown";
+  insuranceStatus?: "likely_accepts" | "verify_with_office";
+  insuranceNote?: string;
 };
 
 type SessionPayload =
@@ -139,10 +155,17 @@ function RegistrationPanel({
       const payload = (await response.json()) as {
         error?: string;
         demoCode?: string;
+        deliveryNote?: string;
+        channel?: string;
         issues?: Array<{ message: string }>;
       };
       if (!response.ok) throw new Error(payload.issues?.[0]?.message ?? payload.error ?? "Could not send code");
       setDemoCode(payload.demoCode ?? "");
+      if (payload.channel === "twilio-verify") {
+        setError("");
+      } else if (payload.deliveryNote) {
+        setError(payload.deliveryNote);
+      }
       setStep("code");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not send code");
@@ -235,7 +258,14 @@ function RegistrationPanel({
       ) : (
         <form className="registration-form" onSubmit={verifyCode}>
           <p className="muted-copy">Enter the 6-digit code sent to {phone}.</p>
-          {demoCode && <p className="muted-copy" role="status">Demo mode code: <strong>{demoCode}</strong></p>}
+          {demoCode ? (
+            <p className="demo-code-banner" role="status">
+              <strong>Backup code:</strong> {demoCode}
+              <span> Use this if SMS does not arrive.</span>
+            </p>
+          ) : (
+            <p className="muted-copy">Check your text messages. Twilio Verify usually delivers within a minute.</p>
+          )}
           <label className="field">
             <span>Verification code</span>
             <input value={code} onChange={(event) => setCode(event.target.value)} inputMode="numeric" pattern="\d{6}" placeholder="123456" required maxLength={6} />
@@ -583,6 +613,7 @@ function BookingWorkspace({
   const [searching, setSearching] = useState(false);
   const [searchAttempted, setSearchAttempted] = useState(false);
   const [issueKind, setIssueKind] = useState<"new" | "continuation">("new");
+  const [insurance, setInsurance] = useState("");
   const [phone, setPhone] = useState(registered?.phone ?? "");
   const [email, setEmail] = useState("");
   const [smsConsent, setSmsConsent] = useState(false);
@@ -595,6 +626,7 @@ function BookingWorkspace({
     disclaimer: string;
     issueKind?: "new" | "continuation";
     sms: { sent: boolean; status: string };
+    hospitalNotification?: { sent: boolean; status: string };
     screening?: { ran: boolean; diseaseInferred: boolean; note: string };
   } | null>(null);
 
@@ -617,13 +649,17 @@ function BookingWorkspace({
       setError("Add your city and state before searching.");
       return;
     }
+    if (insurance.trim().length < 2) {
+      setError("Add your insurance plan before searching for in-network options.");
+      return;
+    }
 
     setSearching(true);
     try {
       const response = await fetch("/api/providers/search", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ location, specialty }),
+        body: JSON.stringify({ location, specialty, insurance: insurance.trim() }),
       });
       const payload = (await response.json()) as { providers?: Provider[]; error?: string };
       if (!response.ok) throw new Error(payload.error ?? "Provider search unavailable");
@@ -664,6 +700,7 @@ function BookingWorkspace({
           reason,
           reasonCategory: specialty,
           issueKind,
+          insurance: insurance.trim(),
           modality,
           requestedDate: date,
           timeWindow,
@@ -714,6 +751,11 @@ function BookingWorkspace({
           {result.screening?.note ?? "Voice disease screening did not run—no disease was inferred from your voice."}
         </p>
         <p className="muted-copy">
+          {result.hospitalNotification?.sent
+            ? "Hospital booking line notified by SMS."
+            : "Hospital booking notification could not be sent automatically."}
+        </p>
+        <p className="muted-copy">
           {smsConsent
             ? result.sms.sent
               ? "SMS follow-up queued (includes screening status)."
@@ -746,10 +788,20 @@ function BookingWorkspace({
             <div className="input-with-icon"><MapPin size={17} /><input value={location} onChange={(event) => setLocation(event.target.value)} placeholder="Boston, MA" maxLength={120} /></div>
           </label>
           <label className="field full">
+            <span>Insurance plan</span>
+            <input
+              value={insurance}
+              onChange={(event) => setInsurance(event.target.value)}
+              placeholder="e.g. Blue Cross PPO, Medicare, Aetna"
+              maxLength={120}
+              required
+            />
+          </label>
+          <label className="field full">
             <span>What’s going on?</span>
             <textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Briefly describe the reason for your visit and when it started." maxLength={1000} required />
           </label>
-          <fieldset className="field full issue-kind">
+          <fieldset className="issue-kind full">
             <legend>Is this a new concern or a continuation?</legend>
             <label>
               <input type="radio" name="issueKind" checked={issueKind === "new"} onChange={() => setIssueKind("new")} />
@@ -762,7 +814,7 @@ function BookingWorkspace({
           </fieldset>
         </div>
         {emergency && <div className="emergency-card" role="alert"><CircleAlert size={20} /><div><strong>Get urgent help now</strong><p>{emergency}</p></div></div>}
-        <button className="search-button" type="button" onClick={() => void findProviders()} disabled={searching || !location.trim()}>
+        <button className="search-button" type="button" onClick={() => void findProviders()} disabled={searching || !location.trim() || insurance.trim().length < 2}>
           {searching ? <span className="button-spinner" /> : <Search size={18} />}
           {searching ? "Searching nearby care…" : "Find nearby providers"}
         </button>
@@ -818,7 +870,7 @@ function BookingWorkspace({
           {submitting ? "Saving request…" : "Request appointment"}
           {!submitting && <ArrowRight size={17} />}
         </button>
-        <p className="booking-disclaimer">This sends a request, not a confirmed booking. No payment or insurance data collected.</p>
+        <p className="booking-disclaimer">This sends a request to the hospital booking line and is not a confirmed appointment.</p>
       </div>
 
       <aside className="provider-results" aria-label="Provider results">
@@ -826,11 +878,12 @@ function BookingWorkspace({
           <div><p className="eyebrow">Nearby care</p><h3>Choose a provider</h3></div>
           {providers.length > 0 && <span>{providers.length} listings</span>}
         </div>
+        <CallToBookBanner />
         {!searchAttempted ? (
           <div className="provider-empty">
             <div className="empty-map"><MapPin size={25} /></div>
             <h4>Start with location</h4>
-            <p>We’ll show a small set of nearby public listings. You can also continue with no preference.</p>
+            <p>We’ll show a small set of nearby public listings. You can also continue with no preference or call Voia directly.</p>
           </div>
         ) : searching ? (
           <div className="provider-skeletons" aria-label="Loading providers">
@@ -852,6 +905,11 @@ function BookingWorkspace({
                     <span className="provider-main">
                       <strong>{provider.name}</strong>
                       <small>{provider.categories[0] ?? provider.facilityName ?? specialty}</small>
+                      {provider.insuranceNote && (
+                        <small className="insurance-note">
+                          {provider.insuranceStatus === "likely_accepts" ? "Likely in-network" : "Verify insurance"} · {provider.insuranceNote}
+                        </small>
+                      )}
                     </span>
                   </button>
                   {provider.rating !== undefined && <p className="rating"><Star size={14} fill="currentColor" /> {provider.rating.toFixed(1)} {provider.reviewCount !== undefined && <span>({provider.reviewCount})</span>}</p>}

@@ -1,5 +1,6 @@
 import { ensureDatabase, storageBackend } from "@/db/runtime";
 import { ELEVENLABS_AGENT_ID, getEnv } from "@/lib/runtime-env";
+import { getVerifyServiceSid } from "@/lib/twilio";
 
 export async function GET() {
   let database = true;
@@ -18,7 +19,8 @@ export async function GET() {
     sms:
       Boolean(getEnv("TWILIO_ACCOUNT_SID")) &&
       Boolean(getEnv("TWILIO_API_SECRET") ?? getEnv("TWILIO_AUTH_TOKEN")) &&
-      Boolean(getEnv("TWILIO_PHONE_NUMBER") ?? getEnv("TWILIO_MESSAGING_SERVICE_SID")),
+      Boolean(getEnv("TWILIO_PHONE_NUMBER") ?? getEnv("TWILIO_MESSAGING_SERVICE_SID") ?? getVerifyServiceSid()),
+    otpVerify: Boolean(getVerifyServiceSid()),
     signedTwilioWebhooks: Boolean(getEnv("TWILIO_AUTH_TOKEN")),
     signedElevenLabsWebhooks: Boolean(getEnv("ELEVENLABS_WEBHOOK_SECRET")),
     encryptedContactStorage: Boolean(getEnv("DATA_ENCRYPTION_KEY")),

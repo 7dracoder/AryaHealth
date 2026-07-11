@@ -49,6 +49,7 @@ export async function memoryInsertAppointment(
     providerWebsite: appointment.providerWebsite ?? null,
     address: appointment.address ?? null,
     issueKind: appointment.issueKind ?? "new",
+    insurance: appointment.insurance ?? "",
     status: appointment.status ?? "pending_provider",
     source: appointment.source ?? "web",
     createdAt: appointment.createdAt ?? now,
@@ -77,13 +78,14 @@ export async function memoryInsertNotification(input: {
   providerMessageId?: string;
   status: string;
   errorCode?: string;
+  channel?: string;
 }): Promise<void> {
   await ensureMemoryStore();
   const now = new Date().toISOString();
   notificationRows.push({
     id: crypto.randomUUID(),
     appointmentId: input.appointmentId,
-    channel: "sms",
+    channel: input.channel ?? "sms",
     providerMessageId: input.providerMessageId ?? null,
     status: input.status,
     errorCode: input.errorCode ?? null,

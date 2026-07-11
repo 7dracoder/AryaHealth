@@ -2,7 +2,7 @@ import { insertAppointment, insertNotification } from "@/db/repository";
 import { encryptJson, patientKey, patientLabel } from "./crypto";
 import { getEnv } from "./runtime-env";
 import { assessEmergency } from "./safety";
-import { sendAppointmentReceipt } from "./twilio";
+import { sendAppointmentReceipt, sendHospitalAppointmentRequest } from "./twilio";
 import type { AppointmentRequestInput } from "./validation";
 
 export class EmergencyRequestError extends Error {
@@ -54,6 +54,7 @@ export async function createAppointmentRequest(input: AppointmentRequestInput) {
       timeWindow: input.timeWindow,
       timezone: input.timezone,
       reasonCategory: input.reasonCategory,
+      insurance: input.insurance,
       issueKind: input.issueKind,
       status: "pending_provider",
       source: input.source,
@@ -68,6 +69,39 @@ export async function createAppointmentRequest(input: AppointmentRequestInput) {
     },
   );
 
+  let hospitalNotification: { sent: boolean; status: string } = { sent: false, status: "not_requested" };
+  try {
+    const hospitalResult = await sendHospitalAppointmentRequest({
+      appointmentId: id,
+      patientPhone: input.phone,
+      patientEmail: input.email || undefined,
+      insurance: input.insurance,
+      specialty: input.specialty,
+      location: input.location,
+      reasonCategory: input.reasonCategory,
+      issueKind: input.issueKind,
+      modality: input.modality,
+      requestedDate: input.requestedDate,
+      timeWindow: input.timeWindow,
+      timezone: input.timezone,
+      providerName: input.provider?.name,
+      facilityName: input.provider?.facilityName,
+      providerAddress: input.provider?.address,
+    });
+    hospitalNotification = hospitalResult.configured
+      ? { sent: true, status: hospitalResult.status }
+      : { sent: false, status: "not_configured" };
+    await insertNotification({
+      appointmentId: id,
+      providerMessageId: hospitalResult.configured ? hospitalResult.sid : undefined,
+      status: hospitalResult.configured ? hospitalResult.status : "not_configured",
+      channel: "hospital_sms",
+    });
+  } catch {
+    hospitalNotification = { sent: false, status: "failed" };
+    await insertNotification({ appointmentId: id, status: "failed", channel: "hospital_sms" });
+  }
+
   let sms: { sent: boolean; status: string } = { sent: false, status: "not_requested" };
   if (input.consent.sms) {
     try {
@@ -79,10 +113,11 @@ export async function createAppointmentRequest(input: AppointmentRequestInput) {
         appointmentId: id,
         providerMessageId: result.configured ? result.sid : undefined,
         status: result.configured ? result.status : "not_configured",
+        channel: "patient_sms",
       });
     } catch {
       sms = { sent: false, status: "failed" };
-      await insertNotification({ appointmentId: id, status: "failed" });
+      await insertNotification({ appointmentId: id, status: "failed", channel: "patient_sms" });
     }
   }
 
@@ -95,7 +130,9 @@ export async function createAppointmentRequest(input: AppointmentRequestInput) {
     timeWindow: row.timeWindow,
     timezone: row.timezone,
     issueKind: row.issueKind,
+    insurance: row.insurance,
     sms,
+    hospitalNotification,
     screening: {
       ran: false,
       diseaseInferred: false,
