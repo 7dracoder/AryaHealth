@@ -1,4 +1,4 @@
-import { ensureDatabase } from "@/db/runtime";
+import { ensureDatabase, storageBackend } from "@/db/runtime";
 import { ELEVENLABS_AGENT_ID, getEnv } from "@/lib/runtime-env";
 
 export async function GET() {
@@ -11,6 +11,7 @@ export async function GET() {
 
   const services = {
     database,
+    storage: storageBackend(),
     elevenlabsAgent: Boolean(ELEVENLABS_AGENT_ID),
     privateVoiceSessions: Boolean(getEnv("ELEVENLABS_API_KEY")),
     providerSearch: Boolean(getEnv("NIMBLE_API_KEY")),

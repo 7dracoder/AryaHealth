@@ -1,9 +1,9 @@
-import { drizzle } from "drizzle-orm/d1";
+import { drizzle } from "drizzle-orm/libsql";
 import * as schema from "./schema";
-import { ensureDatabase, getD1 } from "./runtime";
+import { ensureDatabase, getLibsql } from "./runtime";
 
 export function getDb() {
-  return drizzle(getD1(), { schema });
+  return drizzle(getLibsql(), { schema });
 }
 
 export async function getReadyDb() {

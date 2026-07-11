@@ -1,18 +1,6 @@
-export type RuntimeBindings = Record<string, unknown> & { DB?: unknown };
-
-declare global {
-  var __VOIA_RUNTIME_BINDINGS__: RuntimeBindings | undefined;
-}
-
-export function getRuntimeBindings(): RuntimeBindings {
-  return globalThis.__VOIA_RUNTIME_BINDINGS__ ?? {};
-}
-
 export function getEnv(name: string): string | undefined {
-  const value = getRuntimeBindings()[name];
-  if (typeof value === "string" && value.trim()) return value.trim();
-  const nodeValue = typeof process !== "undefined" ? process.env[name] : undefined;
-  return nodeValue?.trim() || undefined;
+  const value = process.env[name];
+  return value?.trim() || undefined;
 }
 
 export function envFlag(name: string, fallback = false): boolean {

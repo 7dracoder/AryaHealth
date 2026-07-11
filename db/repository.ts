@@ -1,6 +1,21 @@
 import { and, desc, eq, gt, lt } from "drizzle-orm";
 import { getReadyDb } from ".";
 import {
+  memoryDeleteOtpChallenge,
+  memoryGetActiveOtpChallenge,
+  memoryGetRegisteredPatientByKey,
+  memoryGetRegisteredPatientByPhoneHash,
+  memoryIncrementOtpAttempts,
+  memoryInsertAppointment,
+  memoryInsertNotification,
+  memoryListAppointments,
+  memoryPurgeExpiredOtpChallenges,
+  memoryRecordWebhookReceipt,
+  memoryReplaceOtpChallenge,
+  memoryUpdateNotificationStatus,
+  memoryUpsertRegisteredPatient,
+} from "./memory";
+import {
   appointmentRequests,
   consentEvents,
   notifications,
@@ -8,6 +23,7 @@ import {
   registeredPatients,
   webhookReceipts,
 } from "./schema";
+import { usesMemoryStorage } from "./runtime";
 
 export type AppointmentRow = typeof appointmentRequests.$inferSelect;
 export type RegisteredPatientRow = typeof registeredPatients.$inferSelect;
@@ -16,6 +32,10 @@ export async function insertAppointment(
   appointment: typeof appointmentRequests.$inferInsert,
   consent: Omit<typeof consentEvents.$inferInsert, "id" | "appointmentId">,
 ): Promise<AppointmentRow> {
+  if (usesMemoryStorage()) {
+    return memoryInsertAppointment(appointment, consent);
+  }
+
   const db = await getReadyDb();
   await db.insert(appointmentRequests).values(appointment);
   await db.insert(consentEvents).values({
@@ -33,6 +53,10 @@ export async function insertAppointment(
 }
 
 export async function listAppointments(patientKey: string): Promise<AppointmentRow[]> {
+  if (usesMemoryStorage()) {
+    return memoryListAppointments(patientKey);
+  }
+
   const db = await getReadyDb();
   return db
     .select()
@@ -48,6 +72,10 @@ export async function insertNotification(input: {
   status: string;
   errorCode?: string;
 }): Promise<void> {
+  if (usesMemoryStorage()) {
+    return memoryInsertNotification(input);
+  }
+
   const db = await getReadyDb();
   await db.insert(notifications).values({
     id: crypto.randomUUID(),
@@ -64,6 +92,10 @@ export async function updateNotificationStatus(input: {
   status: string;
   errorCode?: string;
 }): Promise<void> {
+  if (usesMemoryStorage()) {
+    return memoryUpdateNotificationStatus(input);
+  }
+
   const db = await getReadyDb();
   await db
     .update(notifications)
@@ -81,6 +113,10 @@ export async function recordWebhookReceipt(input: {
   payloadHash: string;
   status: string;
 }): Promise<boolean> {
+  if (usesMemoryStorage()) {
+    return memoryRecordWebhookReceipt(input);
+  }
+
   const db = await getReadyDb();
   const id = `${input.provider}:${input.externalId}:${input.status}`;
   const rows = await db
@@ -94,12 +130,18 @@ export async function recordWebhookReceipt(input: {
 export async function replaceOtpChallenge(
   challenge: typeof otpChallenges.$inferInsert,
 ): Promise<void> {
+  if (usesMemoryStorage()) {
+    return memoryReplaceOtpChallenge(challenge);
+  }
   const db = await getReadyDb();
   await db.delete(otpChallenges).where(eq(otpChallenges.phoneHash, challenge.phoneHash));
   await db.insert(otpChallenges).values(challenge);
 }
 
 export async function getActiveOtpChallenge(phoneHash: string) {
+  if (usesMemoryStorage()) {
+    return memoryGetActiveOtpChallenge(phoneHash);
+  }
   const db = await getReadyDb();
   const now = Date.now();
   const [row] = await db
@@ -112,16 +154,25 @@ export async function getActiveOtpChallenge(phoneHash: string) {
 }
 
 export async function incrementOtpAttempts(id: string, attempts: number): Promise<void> {
+  if (usesMemoryStorage()) {
+    return memoryIncrementOtpAttempts(id, attempts);
+  }
   const db = await getReadyDb();
   await db.update(otpChallenges).set({ attempts }).where(eq(otpChallenges.id, id));
 }
 
 export async function deleteOtpChallenge(id: string): Promise<void> {
+  if (usesMemoryStorage()) {
+    return memoryDeleteOtpChallenge(id);
+  }
   const db = await getReadyDb();
   await db.delete(otpChallenges).where(eq(otpChallenges.id, id));
 }
 
 export async function purgeExpiredOtpChallenges(): Promise<void> {
+  if (usesMemoryStorage()) {
+    return memoryPurgeExpiredOtpChallenges();
+  }
   const db = await getReadyDb();
   await db.delete(otpChallenges).where(lt(otpChallenges.expiresAt, Date.now()));
 }
@@ -129,6 +180,9 @@ export async function purgeExpiredOtpChallenges(): Promise<void> {
 export async function upsertRegisteredPatient(
   patient: typeof registeredPatients.$inferInsert,
 ): Promise<RegisteredPatientRow> {
+  if (usesMemoryStorage()) {
+    return memoryUpsertRegisteredPatient(patient);
+  }
   const db = await getReadyDb();
   await db
     .insert(registeredPatients)
@@ -157,6 +211,9 @@ export async function upsertRegisteredPatient(
 }
 
 export async function getRegisteredPatientByKey(patientKey: string) {
+  if (usesMemoryStorage()) {
+    return memoryGetRegisteredPatientByKey(patientKey);
+  }
   const db = await getReadyDb();
   const [row] = await db
     .select()
@@ -167,6 +224,9 @@ export async function getRegisteredPatientByKey(patientKey: string) {
 }
 
 export async function getRegisteredPatientByPhoneHash(phoneHash: string) {
+  if (usesMemoryStorage()) {
+    return memoryGetRegisteredPatientByPhoneHash(phoneHash);
+  }
   const db = await getReadyDb();
   const [row] = await db
     .select()

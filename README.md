@@ -1,99 +1,256 @@
-# Voia by Arya Health
+<p align="center">
+  <strong>Voia by Arya Health</strong><br/>
+  Multilingual voice and chat care navigation
+</p>
 
-End-to-end healthcare care-navigation preview: ElevenLabs web voice/chat, Twilio phone/SMS, Nimble provider discovery, appointment-request workflow, D1 persistence, consent records, emergency gating, and signed webhooks.
+---
 
-## Important product boundary
+## Why this project exists
 
-This build saves **pending appointment requests**. It does not claim a provider slot is available or confirmed. A real scheduling/FHIR/EHR adapter is still required before status may become `confirmed`.
+Healthcare access often breaks down before a patient ever reaches a clinician. People struggle to find the right specialty, understand what kind of visit they need, compare nearby options, and complete intake without repeating themselves across phone trees, forms, and portals.
 
-Voice disease screening is deliberately disabled. No validated screening model/API was supplied, so Voia never infers disease from a patient's voice or wording.
+**Arya Health** built **Voia** to close that gap. Voia is a care-navigation assistant that meets patients where they already communicate — web voice, web chat, phone, and SMS — and guides them through a safer, consent-aware path to a **pending appointment request**.
 
-Do not process real protected health information until all vendors and deployment systems are covered by the required agreements and controls. ElevenLabs requires Enterprise BAA + Zero Retention for PHI; Twilio requires a BAA/HIPAA project configuration.
+This repository is an end-to-end preview of that experience. It wires together conversational AI, provider discovery, appointment intake, consent tracking, emergency gating, and webhook-driven notifications in one deployable application.
 
-## Run locally
+### What Voia does
 
-Requirements: Node.js 22.13+.
+| Capability | Description |
+|---|---|
+| **Multilingual care navigation** | Voice and chat assistant helps patients describe needs, choose a specialty, and understand next steps |
+| **Provider discovery** | Searches public provider listings by specialty and coarse location via Nimble |
+| **Appointment requests** | Captures preferred date, time window, modality, and provider choice; stores a `pending_provider` request |
+| **Emergency safety gate** | Detects possible stroke, cardiac, breathing, neurologic, or self-harm language and stops routine booking |
+| **Consent management** | Separate care-data, screening, and SMS consents with auditable records |
+| **Multi-channel access** | Web (voice + chat), Twilio voice, and Twilio SMS |
+| **Medical education** | Agent can query allowlisted CDC, NIH, MedlinePlus, and WHO sources for general information |
+| **Operational health** | `/api/health` reports integration readiness without exposing secrets |
+
+### What Voia does not do
+
+These boundaries are intentional and enforced in code and agent policy:
+
+- **No confirmed bookings.** Requests stay `pending_provider` until a real scheduling or EHR adapter confirms availability.
+- **No voice disease screening.** No validated screening model is configured; Voia must not infer disease from voice or wording.
+- **No PHI in third-party search.** Patient identity, contact details, insurance, and free-text symptoms are never sent to Nimble.
+- **No raw transcript or audio retention.** ElevenLabs post-call webhooks are verified and receipted; transcript content is not persisted.
+- **Not production-HIPAA-ready out of the box.** Live PHI requires vendor BAAs, encryption keys, counsel-approved policies, and operational controls.
+
+---
+
+## Architecture
+
+```text
+                         ┌─────────────────────────────────────────┐
+                         │           Patient channels              │
+                         │  Web voice/chat · Phone · SMS           │
+                         └───────────────┬─────────────────────────┘
+                                         │
+           ┌─────────────────────────────┼─────────────────────────────┐
+           │                             │                             │
+           v                             v                             v
+  /api/elevenlabs/token          ElevenLabs native            /api/webhooks/twilio/*
+  (WebRTC session)               phone integration              (signed SMS/voice/status)
+           │                             │                             │
+           └─────────────────────────────┼─────────────────────────────┘
+                                         v
+                              ElevenLabs Conversational Agent
+                              (config/voia-agent-prompt.md)
+                                         │
+                    authenticated tools  │  emergency + consent policy
+                                         v
+           ┌─────────────────────────────┼─────────────────────────────┐
+           │                             │                             │
+           v                             v                             v
+ /api/tools/providers/search   /api/tools/appointments/request   /api/tools/medical-info
+           │                             │                             │
+           v                             v                             v
+        Nimble API                   App business logic            Allowlisted sources
+     (sanitized query)            (validation, crypto, SMS)         (CDC/NIH/etc.)
+                                         │
+                                         v
+                              libSQL / Turso (SQLite)
+                    appointments · consents · notifications · webhooks · rate limits
+```
+
+### Tech stack
+
+| Layer | Choice |
+|---|---|
+| Framework | [Next.js 16](https://nextjs.org/) App Router |
+| Hosting | [Vercel](https://vercel.com/) |
+| Database | [libSQL](https://github.com/tursodatabase/libsql) / [Turso](https://turso.tech/) with [Drizzle ORM](https://orm.drizzle.team/) |
+| Voice / chat AI | [ElevenLabs Conversational AI](https://elevenlabs.io/) |
+| Telephony / SMS | [Twilio](https://www.twilio.com/) |
+| Provider data | [Nimble](https://nimbleway.com/) |
+| UI | React 19, Tailwind CSS 4, Lucide icons |
+| Validation | Zod 4 |
+
+---
+
+## User workflows
+
+### Web voice or chat
+
+1. Patient opens the landing page and accepts care-data consent (screening consent is optional and separate).
+2. Patient starts a voice or chat session with the ElevenLabs agent.
+3. Voia asks about symptoms, location, specialty, visit type, and scheduling preferences.
+4. If emergency language is detected, routine booking stops and urgent guidance is shown.
+5. Voia searches providers and presents two to four public listings.
+6. After confirmation, Voia submits a pending appointment request and returns a request ID such as `VOIA-XXXXXXXXXX`.
+7. Optional generic SMS receipt is sent if SMS consent was granted.
+
+### Phone (Twilio → ElevenLabs)
+
+1. Patient calls the configured Twilio number.
+2. Call routes through ElevenLabs native phone integration.
+3. The same agent policy and tools apply as on web voice.
+
+### SMS
+
+1. Inbound SMS hits a signed Twilio webhook.
+2. Outbound receipts and status callbacks use signed webhooks and delivery tracking in D1.
+
+### Web form (parallel path)
+
+The UI also exposes a structured booking form that calls `POST /api/appointments` directly, sharing the same validation, emergency gate, and persistence logic as the agent tools.
+
+---
+
+## Agent workflow
+
+Agent behavior is defined in [`config/voia-agent-prompt.md`](config/voia-agent-prompt.md). Priority order:
+
+1. **Emergency safety** — stop routine flow for stroke, cardiac, breathing, neurologic, or self-harm signals
+2. **Consent and privacy** — explicit care-data and SMS consent before storage or texting
+3. **Care navigation** — specialty, location, modality, scheduling, provider choice
+4. **Education** — short, source-grounded answers from approved medical sources only
+
+Authenticated agent tools (require `VOIA_TOOL_SECRET`):
+
+| Tool route | Purpose |
+|---|---|
+| `POST /api/tools/providers/search` | Specialty + location provider lookup |
+| `POST /api/tools/appointments/request` | Create pending appointment + consent record |
+| `POST /api/tools/medical-info` | Search allowlisted public health sources |
+| `POST /api/tools/screenings/create` | Disabled — no validated screening backend |
+
+---
+
+## Security and privacy
+
+- **Rate limiting** on public session, provider search, and appointment endpoints
+- **Signed webhooks** for Twilio and ElevenLabs when secrets are configured
+- **PII minimization in demo mode** — contact details discarded after request; only hashed patient key + initials stored
+- **AES-256-GCM contact encryption** in `live` mode when `DATA_ENCRYPTION_KEY` is set
+- **Patient key hashing** via `PII_HASH_SALT` + normalized phone/email
+- **Tool authentication** via bearer token or `x-voia-tool-secret` header
+- **Emergency regex gate** in [`lib/safety.ts`](lib/safety.ts) before appointment persistence
+
+---
+
+## Getting started
+
+### Prerequisites
+
+- **Node.js 22.13+**
+- Accounts and API keys for ElevenLabs, Twilio, and Nimble (for full functionality)
+- A [Turso](https://turso.tech/) database for production persistence on Vercel
+
+### Local development
 
 ```bash
 npm install
-cp .dev.vars.example .dev.vars
+cp .env.example .env.local
+# Fill in .env.local with your secrets (never commit this file)
 npm run dev
 ```
 
-Open `http://localhost:3000`. Check integration state at `http://localhost:3000/api/health`.
+Open [http://localhost:3000](http://localhost:3000).
 
-Real values belong in `.dev.vars` locally and the hosting secret manager in production. Never commit them.
+Check integration readiness at [http://localhost:3000/api/health](http://localhost:3000/api/health).
 
-## Required live configuration
+### Environment variables
 
-See `.env.example` for every variable. Minimum external setup:
+Copy [`.env.example`](.env.example) for the full list. Key groups:
 
-- `ELEVENLABS_API_KEY` for private WebRTC tokens and agent configuration.
-- `ELEVENLABS_WEBHOOK_SECRET` for signed post-call events.
-- `VOIA_TOOL_SECRET` plus `ELEVENLABS_TOOL_SECRET_ID` for authenticated agent tools.
-- `NIMBLE_API_KEY` for public provider listings.
-- Twilio `AC...` Account SID, Auth Token, API Key SID/secret, voice/SMS phone number, and preferably a Messaging Service SID.
-- `DATA_ENCRYPTION_KEY` (32 random bytes, base64) and `PII_HASH_SALT` before `PRODUCT_MODE=live`.
-- Public HTTPS `APP_BASE_URL`.
+| Group | Variables | Notes |
+|---|---|---|
+| Product | `APP_BASE_URL`, `PRODUCT_MODE`, `ELEVENLABS_AGENT_ID` | `demo` vs `live` controls contact retention |
+| Database | `DATABASE_URL`, `DATABASE_AUTH_TOKEN` | Local default: `file:.data/voia.db`; production: Turso `libsql://...` |
+| ElevenLabs | `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET`, `ELEVENLABS_TOOL_SECRET_ID`, `VOIA_TOOL_SECRET` | API key required for private WebRTC sessions |
+| Twilio | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_API_KEY`, `TWILIO_API_SECRET`, `TWILIO_PHONE_NUMBER`, `TWILIO_MESSAGING_SERVICE_SID` | `AC...` is Account SID; `SK...` is API Key SID |
+| Nimble | `NIMBLE_API_KEY` | Server-only provider search |
+| Crypto (live) | `DATA_ENCRYPTION_KEY`, `PII_HASH_SALT` | Generate key: `openssl rand -base64 32` |
 
-The Twilio credential that begins with `SK` is an API Key SID, not the required `AC` Account SID. ElevenLabs native number import and Twilio webhook verification require the Account SID and Auth Token.
+> **Credential hygiene:** Any secret shared in chat or committed to git should be rotated before production use.
 
-Any secret pasted into chat should be revoked and replaced before use.
+### Connect the agent and phone number
 
-## Connect agent and phone
-
-Both setup scripts are dry-run by default:
+Setup scripts are **dry-run by default**:
 
 ```bash
-npm run setup:agent
-npm run setup:phone
+npm run setup:agent    # Preview ElevenLabs tool + prompt configuration
+npm run setup:phone    # Preview Twilio number import + SMS webhook wiring
 ```
 
-After reviewing output and filling secure environment values:
+Apply after reviewing output and setting secure env values:
 
 ```bash
 npm run setup:agent -- --apply
 npm run setup:phone -- --apply
 ```
 
-`setup:agent` creates/updates authenticated ElevenLabs webhook tools, applies `config/voia-agent-prompt.md`, and preserves existing tool IDs. `setup:phone` imports the Twilio number into ElevenLabs for native inbound voice and points inbound SMS to this app.
+- `setup:agent` — creates/updates authenticated ElevenLabs webhook tools, applies the agent prompt, preserves existing tool IDs
+- `setup:phone` — imports the Twilio number into ElevenLabs for native inbound voice and points inbound SMS to this app
 
-## Architecture
+---
 
-```text
-Web voice/chat ──> /api/elevenlabs/token ──> ElevenLabs agent
-Twilio voice ──────────────────────────────> ElevenLabs native phone integration
-Twilio SMS ─────> signed app webhook
-ElevenLabs tools ─> authenticated provider/search/request APIs
-Nimble ─────────> sanitized specialty + coarse location only
-App APIs ───────> D1: minimized appointment, consent, delivery, webhook records
-```
+## API reference
 
-The app never sends patient identity, contact information, or free-text symptoms to Nimble. It never persists raw ElevenLabs audio or transcript. In demo mode, contact details are discarded after the request and only a keyed patient hash plus initials are stored. In live mode, contact storage requires AES-256-GCM encryption.
+### Public routes
 
-## Main routes
+| Method | Route | Description |
+|---|---|---|
+| `GET` | `/api/health` | Integration readiness and product mode |
+| `POST` | `/api/elevenlabs/token` | WebRTC session token (rate-limited) |
+| `POST` | `/api/providers/search` | Public provider lookup (rate-limited) |
+| `POST` | `/api/appointments` | Emergency-gated appointment request (rate-limited) |
 
-| Route | Purpose |
-|---|---|
-| `POST /api/elevenlabs/token` | Public-agent fallback or private WebRTC token |
-| `POST /api/providers/search` | Rate-limited public provider lookup |
-| `POST /api/appointments` | Emergency-gated pending request |
-| `POST /api/tools/providers/search` | Authenticated ElevenLabs provider tool |
-| `POST /api/tools/appointments/request` | Authenticated agent request tool |
-| `POST /api/tools/medical-info` | Allowlisted CDC/NIH/MedlinePlus/WHO source search |
-| `POST /api/webhooks/twilio/*` | Signed SMS, delivery, and optional custom voice webhooks |
-| `POST /api/webhooks/elevenlabs` | Signed, idempotent post-call receipt; no transcript storage |
-| `GET /api/health` | Non-secret integration readiness |
+### Webhooks
+
+| Method | Route | Description |
+|---|---|---|
+| `POST` | `/api/webhooks/twilio/sms` | Inbound SMS |
+| `POST` | `/api/webhooks/twilio/status` | Delivery status callbacks |
+| `POST` | `/api/webhooks/twilio/voice` | Optional custom voice webhook |
+| `POST` | `/api/webhooks/elevenlabs` | Signed, idempotent post-call receipt |
+
+---
 
 ## Database
 
-Schema lives in `db/schema.ts`; generated migration lives in `drizzle/0000_nifty_deathstrike.sql`. Local/runtime initialization uses individual prepared D1 statements. Hosting owns the actual D1 binding named `DB`.
+Schema: [`db/schema.ts`](db/schema.ts)
+
+| Table | Purpose |
+|---|---|
+| `appointment_requests` | Pending appointment intake |
+| `consent_events` | Care-data, screening, and SMS consent audit trail |
+| `notifications` | SMS delivery tracking |
+| `webhook_receipts` | Idempotent webhook processing |
+| `rate_limits` | Per-key request throttling |
+
+Migration SQL: [`drizzle/0000_nifty_deathstrike.sql`](drizzle/0000_nifty_deathstrike.sql)
+
+Runtime also ensures tables via libSQL batch statements in [`db/runtime.ts`](db/runtime.ts).
 
 ```bash
-npm run db:generate
+npm run db:generate   # Regenerate migrations after schema changes
 ```
 
-## Verify
+---
+
+## Testing and quality
 
 ```bash
 npm run lint
@@ -101,15 +258,84 @@ npx tsc --noEmit
 npm test
 ```
 
-## Before a real launch
+Tests cover validation rules, emergency detection, safety messaging, and rendered HTML expectations.
 
-- Rotate exposed credentials; use a secrets manager.
-- Execute Twilio and ElevenLabs BAAs; enable ElevenLabs Zero Retention.
-- Choose HIPAA-eligible hosting/monitoring and approve retention/deletion policy.
-- Add patient authentication/OTP before exposing history.
-- Complete A2P 10DLC or toll-free verification, STOP/START/HELP handling, geo-permissions, and rate controls.
-- Integrate a real scheduling source; keep all requests `pending_provider` until upstream confirmation.
-- Complete clinical/legal review before enabling any screening or disease-risk feature.
-- Replace preview privacy/terms copy with counsel-approved policies.
+---
 
-Twilio Programmable Messaging provides SMS/MMS, not ordinary iMessage. Apple Messages for Business would require a separate integration.
+## Deployment
+
+### Vercel (recommended)
+
+This project uses standard `next build` and deploys to Vercel.
+
+1. **Link and deploy**
+
+   ```bash
+   npx vercel link
+   npx vercel deploy --prod
+   ```
+
+   Or connect the GitHub repository in the Vercel dashboard for automatic deploys.
+
+2. **Add a Turso database**
+
+   Vercel serverless functions need a remote SQLite-compatible database. [Turso](https://turso.tech/) is the supported option:
+
+   ```bash
+   turso db create arya-health-voia
+   turso db show arya-health-voia --url
+   turso db tokens create arya-health-voia
+   ```
+
+   Add the returned values in Vercel → Project → Settings → Environment Variables:
+
+   - `DATABASE_URL` = `libsql://...`
+   - `DATABASE_AUTH_TOKEN` = Turso auth token
+
+3. **Set production secrets**
+
+   Add the remaining server-only variables from [`.env.example`](.env.example) in the Vercel dashboard (`ELEVENLABS_API_KEY`, `NIMBLE_API_KEY`, `VOIA_TOOL_SECRET`, Twilio credentials, etc.).
+
+4. **Post-deploy**
+
+   - Set `APP_BASE_URL` to your production HTTPS URL (e.g. `https://arya-health-voia.vercel.app`)
+   - Run `npm run setup:phone -- --apply` so Twilio webhooks point at production
+   - Verify `GET /api/health` returns `"status": "ok"`
+
+---
+
+## Production launch checklist
+
+- [ ] Rotate any credentials that were ever exposed
+- [ ] Store secrets in Vercel environment variables (or another managed secret store)
+- [ ] Execute Twilio and ElevenLabs BAAs; enable ElevenLabs Zero Retention for PHI
+- [ ] Set `PRODUCT_MODE=live` with `DATA_ENCRYPTION_KEY` and `PII_HASH_SALT`
+- [ ] Choose HIPAA-eligible hosting, monitoring, and retention policies
+- [ ] Complete A2P 10DLC or toll-free verification for SMS
+- [ ] Implement STOP / START / HELP handling and geo-permissions
+- [ ] Add patient authentication (OTP) before exposing history
+- [ ] Integrate a real scheduling / FHIR / EHR adapter before marking appointments confirmed
+- [ ] Replace preview privacy and terms copy with counsel-approved policies
+- [ ] Complete clinical and legal review before enabling any screening feature
+
+---
+
+## Project structure
+
+```text
+app/                  # Next.js App Router pages and API routes
+  components/         # VoiaExperience UI (voice, chat, booking form)
+  api/                # Public APIs, agent tools, and webhooks
+config/               # ElevenLabs agent system prompt
+db/                   # Drizzle schema, repository, D1 runtime helpers
+drizzle/              # SQL migrations
+lib/                  # Business logic (appointments, safety, twilio, nimble, crypto)
+scripts/              # ElevenLabs + Twilio setup automation
+tests/                # Unit and integration tests
+```
+
+---
+
+## License
+
+Private preview — Arya Health. Not licensed for redistribution without permission.
