@@ -49,7 +49,7 @@ async function api(path, options = {}) {
 if (!secretId) {
   const created = await api("/convai/secrets", {
     method: "POST",
-    body: JSON.stringify({ type: "new", name: "VOIA_TOOL_SECRET", value: toolSecret }),
+    body: JSON.stringify({ type: "new", name: "VOIA_TOOL_BEARER", value: `Bearer ${toolSecret}` }),
   });
   secretId = created.secret_id;
   if (!secretId) throw new Error("ElevenLabs secret response did not include secret_id");
@@ -72,7 +72,7 @@ function webhookTool({ name, description, path, required, properties, responseFi
         method: "POST",
         content_type: "application/json",
         request_headers: {
-          "x-voia-tool-secret": { secret_id: secretId },
+          Authorization: { secret_id: secretId },
         },
         request_body_schema: { type: "object", required, properties },
         response_filter: {
