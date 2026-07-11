@@ -183,6 +183,38 @@ const prompt = await readFile(new URL("../config/voia-agent-prompt.md", import.m
 await api(`/convai/agents/${agentId}`, {
   method: "PATCH",
   body: JSON.stringify({
+    // Keep one continuous node. Multi-node template workflows self-transfer
+    // this agent when intent is detected and can terminate Twilio calls.
+    workflow: {
+      nodes: {
+        start_node: {
+          type: "start",
+          position: { x: 0, y: 0 },
+          edge_order: ["start_to_voia"],
+        },
+        voia: {
+          type: "override_agent",
+          position: { x: 0, y: 300 },
+          edge_order: [],
+          conversation_config: {},
+          additional_prompt: "",
+          additional_knowledge_base: [],
+          additional_tool_ids: [],
+          label: "Voia",
+          entry_behavior: "auto",
+        },
+      },
+      edges: {
+        start_to_voia: {
+          source: "start_node",
+          target: "voia",
+          forward_condition: { type: "unconditional" },
+          backward_condition: null,
+        },
+      },
+      prevent_subagent_loops: true,
+    },
+    version_description: "Configure Voia prompt, tools, and continuous call flow",
     conversation_config: {
       agent: {
         prompt: {
