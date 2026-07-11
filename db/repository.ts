@@ -1,8 +1,16 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, gt, lt } from "drizzle-orm";
 import { getReadyDb } from ".";
-import { appointmentRequests, consentEvents, notifications, webhookReceipts } from "./schema";
+import {
+  appointmentRequests,
+  consentEvents,
+  notifications,
+  otpChallenges,
+  registeredPatients,
+  webhookReceipts,
+} from "./schema";
 
 export type AppointmentRow = typeof appointmentRequests.$inferSelect;
+export type RegisteredPatientRow = typeof registeredPatients.$inferSelect;
 
 export async function insertAppointment(
   appointment: typeof appointmentRequests.$inferInsert,
@@ -81,4 +89,89 @@ export async function recordWebhookReceipt(input: {
     .onConflictDoNothing()
     .returning({ id: webhookReceipts.id });
   return rows.length > 0;
+}
+
+export async function replaceOtpChallenge(
+  challenge: typeof otpChallenges.$inferInsert,
+): Promise<void> {
+  const db = await getReadyDb();
+  await db.delete(otpChallenges).where(eq(otpChallenges.phoneHash, challenge.phoneHash));
+  await db.insert(otpChallenges).values(challenge);
+}
+
+export async function getActiveOtpChallenge(phoneHash: string) {
+  const db = await getReadyDb();
+  const now = Date.now();
+  const [row] = await db
+    .select()
+    .from(otpChallenges)
+    .where(and(eq(otpChallenges.phoneHash, phoneHash), gt(otpChallenges.expiresAt, now)))
+    .orderBy(desc(otpChallenges.createdAt))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function incrementOtpAttempts(id: string, attempts: number): Promise<void> {
+  const db = await getReadyDb();
+  await db.update(otpChallenges).set({ attempts }).where(eq(otpChallenges.id, id));
+}
+
+export async function deleteOtpChallenge(id: string): Promise<void> {
+  const db = await getReadyDb();
+  await db.delete(otpChallenges).where(eq(otpChallenges.id, id));
+}
+
+export async function purgeExpiredOtpChallenges(): Promise<void> {
+  const db = await getReadyDb();
+  await db.delete(otpChallenges).where(lt(otpChallenges.expiresAt, Date.now()));
+}
+
+export async function upsertRegisteredPatient(
+  patient: typeof registeredPatients.$inferInsert,
+): Promise<RegisteredPatientRow> {
+  const db = await getReadyDb();
+  await db
+    .insert(registeredPatients)
+    .values(patient)
+    .onConflictDoUpdate({
+      target: registeredPatients.patientKey,
+      set: {
+        phoneHash: patient.phoneHash,
+        phoneLast4: patient.phoneLast4,
+        encryptedContact: patient.encryptedContact,
+        careDataGranted: patient.careDataGranted,
+        screeningGranted: patient.screeningGranted,
+        smsGranted: patient.smsGranted,
+        policyVersion: patient.policyVersion,
+        verifiedAt: patient.verifiedAt,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  const [row] = await db
+    .select()
+    .from(registeredPatients)
+    .where(eq(registeredPatients.patientKey, patient.patientKey))
+    .limit(1);
+  if (!row) throw new Error("Registration could not be saved");
+  return row;
+}
+
+export async function getRegisteredPatientByKey(patientKey: string) {
+  const db = await getReadyDb();
+  const [row] = await db
+    .select()
+    .from(registeredPatients)
+    .where(eq(registeredPatients.patientKey, patientKey))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function getRegisteredPatientByPhoneHash(phoneHash: string) {
+  const db = await getReadyDb();
+  const [row] = await db
+    .select()
+    .from(registeredPatients)
+    .where(eq(registeredPatients.phoneHash, phoneHash))
+    .limit(1);
+  return row ?? null;
 }

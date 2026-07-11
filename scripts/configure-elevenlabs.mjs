@@ -17,7 +17,7 @@ if (!apply) {
   console.log("Dry run only. No ElevenLabs resources changed.");
   console.log(`Agent: ${agentId}`);
   console.log(`App: ${baseUrl || "<missing APP_BASE_URL>"}`);
-  console.log("Planned tools: search_providers, request_appointment, search_medical_sources");
+  console.log("Planned tools: search_providers, request_appointment, send_follow_up_message, search_medical_sources");
   console.log(`Missing: ${missing.length ? missing.join(", ") : "none"}`);
   console.log("Run npm run setup:agent -- --apply after review.");
   process.exit(0);
@@ -105,17 +105,21 @@ const tools = [
   }),
   webhookTool({
     name: "request_appointment",
-    description: "Save a pending provider-contact request after explicit patient confirmation and care-data consent. This does not book a confirmed slot.",
+    description: "Save a pending provider-contact request after explicit patient confirmation and care-data consent. This does not book a confirmed slot. Do not collect patient name.",
     path: "/api/tools/appointments/request",
-    required: ["fullName", "phone", "location", "specialty", "reason", "reasonCategory", "modality", "requestedDate", "timeWindow", "timezone", "consent"],
+    required: ["phone", "location", "specialty", "reason", "reasonCategory", "issueKind", "modality", "requestedDate", "timeWindow", "timezone", "consent"],
     properties: {
-      fullName: { type: "string", description: "Patient's confirmed full name." },
       phone: { type: "string", description: "Confirmed E.164 phone, such as +12125551234." },
       email: { type: "string", description: "Optional confirmed email." },
       location: { type: "string", description: "Patient city and state." },
       specialty,
       reason: { type: "string", description: "Brief patient-stated visit reason used for emergency gate; not stored as free text." },
       reasonCategory: { type: "string", description: "Short non-diagnostic reason category." },
+      issueKind: {
+        type: "string",
+        description: "Whether the patient said this is a new concern or a continuation of a prior concern.",
+        enum: ["new", "continuation"],
+      },
       modality: { type: "string", description: "Requested visit format.", enum: ["in_person", "telehealth", "either"] },
       requestedDate: { type: "string", description: "Preferred date in YYYY-MM-DD format." },
       timeWindow: { type: "string", description: "Patient's preferred time window.", enum: ["morning", "afternoon", "evening", "anytime"] },
@@ -144,6 +148,29 @@ const tools = [
       },
     },
     responseFilters: ["appointment"],
+  }),
+  webhookTool({
+    name: "send_follow_up_message",
+    description: "Send a consented SMS confirming the conversation, whether the issue was new or a continuation, and that voice disease screening did not run. Call after SMS consent when the patient wants a text summary.",
+    path: "/api/tools/messages/follow-up",
+    required: ["phone", "issueKind", "consent"],
+    properties: {
+      phone: { type: "string", description: "Confirmed E.164 phone, such as +12125551234." },
+      issueKind: {
+        type: "string",
+        description: "Whether the patient said this is a new concern or a continuation of a prior concern.",
+        enum: ["new", "continuation"],
+      },
+      conversationId: { type: "string", description: "Optional conversation identifier if known." },
+      consent: {
+        type: "object",
+        required: ["sms"],
+        properties: {
+          sms: { type: "boolean", description: "Must be true only after explicit SMS consent." },
+        },
+      },
+    },
+    responseFilters: ["followUp"],
   }),
   webhookTool({
     name: "search_medical_sources",
@@ -221,10 +248,12 @@ await api(`/convai/agents/${agentId}`, {
           prompt,
           tool_ids: [...new Set([...existingIds, ...toolIds])],
         },
-        first_message: "Hi, I'm Voia from Arya Health. I can help you find care and request an appointment. If this is an emergency, please call your local emergency number now. What language would you prefer?",
+        first_message: "Hi, I'm Voia from Arya Health. I can help you find care and request an appointment. If this is an emergency, please call your local emergency number now. Would you like English or Español?",
+        language: "en",
       },
     },
   }),
 });
 
 console.log(`Configured agent ${agentId} with ${toolIds.length} Voia webhook tools.`);
+console.log("Includes: no name collection, new/continuation issueKind, send_follow_up_message, screening disclosure, English/Español only.");

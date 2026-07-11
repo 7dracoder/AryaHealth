@@ -21,6 +21,7 @@ export async function GET() {
     signedTwilioWebhooks: Boolean(getEnv("TWILIO_AUTH_TOKEN")),
     signedElevenLabsWebhooks: Boolean(getEnv("ELEVENLABS_WEBHOOK_SECRET")),
     encryptedContactStorage: Boolean(getEnv("DATA_ENCRYPTION_KEY")),
+    registrationSessions: Boolean(getEnv("SESSION_SIGNING_SECRET") ?? getEnv("VOIA_TOOL_SECRET") ?? getEnv("PII_HASH_SALT")),
   };
 
   const ready = services.database && services.elevenlabsAgent;

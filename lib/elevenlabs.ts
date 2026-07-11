@@ -35,7 +35,7 @@ export async function registerTwilioCall(input: {
       to_number: input.to,
       direction: input.direction === "outbound-api" ? "outbound" : "inbound",
       conversation_initiation_client_data: {
-        dynamic_variables: { channel: "phone" },
+        dynamic_variables: { channel: "phone", registered: "true" },
       },
     }),
   });
@@ -73,6 +73,10 @@ export async function verifyElevenLabsWebhook(rawBody: string, signature: string
   return JSON.parse(rawBody) as {
     type?: string;
     event_timestamp?: number;
-    data?: { conversation_id?: string; agent_id?: string; status?: string };
+    data?: Record<string, unknown> & {
+      conversation_id?: string;
+      agent_id?: string;
+      status?: string;
+    };
   };
 }

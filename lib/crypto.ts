@@ -38,6 +38,13 @@ export function initials(name: string): string {
     .join("");
 }
 
+/** Stable non-identifying label from phone when name is not collected. */
+export function patientLabel(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  const tail = digits.slice(-4) || "0000";
+  return `P${tail}`;
+}
+
 export async function encryptJson(value: unknown): Promise<string | null> {
   const encodedKey = getEnv("DATA_ENCRYPTION_KEY");
   if (!encodedKey) return null;

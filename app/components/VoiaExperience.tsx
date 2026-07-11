@@ -42,6 +42,7 @@ const specialtyOptions = [
 ] as const;
 
 type Specialty = (typeof specialtyOptions)[number];
+type AppLanguage = "English" | "Español";
 type ChatMessage = { id: string; role: "agent" | "user" | "system"; text: string };
 type Provider = {
   id: string;
@@ -61,14 +62,197 @@ type SessionPayload =
   | { mode: "public"; agentId: string }
   | { mode: "private"; conversationToken: string };
 
+type RegisteredPatient = {
+  phone: string;
+  phoneLast4: string;
+  careDataGranted: boolean;
+  screeningGranted: boolean;
+  smsGranted: boolean;
+};
+
 const initialMessage: ChatMessage = {
   id: "welcome",
   role: "agent",
-  text: "Hi, I’m Voia. I can help you find a clinician and request an appointment. What kind of care are you looking for?",
+  text: "Hi, I’m Voia. I can help you find a clinician and request an appointment. English or Español?",
 };
+
+function languageCode(language: AppLanguage): "en" | "es" {
+  return language === "Español" ? "es" : "en";
+}
+
+function welcomeForLanguage(language: AppLanguage): string {
+  return language === "Español"
+    ? "Hola, soy Voia. Puedo ayudarte a encontrar un clínico y solicitar una cita. ¿En qué te puedo ayudar?"
+    : "Hi, I’m Voia. I can help you find a clinician and request an appointment. What kind of care are you looking for?";
+}
+
+function firstMessageForLanguage(language: AppLanguage): string {
+  return language === "Español"
+    ? "Hola, soy Voia de Arya Health. Puedo ayudarte a encontrar atención y solicitar una cita. Si es una emergencia, llama ahora a tu número de emergencia local. Continuemos en español."
+    : "Hi, I'm Voia from Arya Health. I can help you find care and request an appointment. If this is an emergency, please call your local emergency number now. We'll continue in English.";
+}
 
 function scrollTo(id: string) {
   document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function RegistrationPanel({
+  careConsent,
+  setCareConsent,
+  screeningConsent,
+  setScreeningConsent,
+  onRegistered,
+}: {
+  careConsent: boolean;
+  setCareConsent: (value: boolean) => void;
+  screeningConsent: boolean;
+  setScreeningConsent: (value: boolean) => void;
+  onRegistered: (patient: RegisteredPatient) => void;
+}) {
+  const [step, setStep] = useState<"phone" | "code">("phone");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [smsConsent, setSmsConsent] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [demoCode, setDemoCode] = useState("");
+
+  async function sendCode(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    if (!careConsent) {
+      setError("Care-assistance consent is required to register.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const response = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          phone,
+          email,
+          consent: { careData: true, screening: screeningConsent, sms: smsConsent },
+        }),
+      });
+      const payload = (await response.json()) as {
+        error?: string;
+        demoCode?: string;
+        issues?: Array<{ message: string }>;
+      };
+      if (!response.ok) throw new Error(payload.issues?.[0]?.message ?? payload.error ?? "Could not send code");
+      setDemoCode(payload.demoCode ?? "");
+      setStep("code");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not send code");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function verifyCode(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    setBusy(true);
+    try {
+      const response = await fetch("/api/auth/verify", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ phone, code }),
+      });
+      const payload = (await response.json()) as {
+        error?: string;
+        patient?: {
+          phoneLast4: string;
+          careDataGranted: boolean;
+          screeningGranted: boolean;
+          smsGranted: boolean;
+        };
+      };
+      if (!response.ok || !payload.patient) {
+        throw new Error(payload.error ?? "Verification failed");
+      }
+      onRegistered({
+        phone,
+        phoneLast4: payload.patient.phoneLast4,
+        careDataGranted: payload.patient.careDataGranted,
+        screeningGranted: payload.patient.screeningGranted,
+        smsGranted: payload.patient.smsGranted,
+      });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Verification failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="assistant-card registration-card" id="assistant" aria-label="Register for Voia">
+      <div className="assistant-card-top">
+        <div className="assistant-title-wrap">
+          <span className="status-dot" />
+          <div>
+            <p className="assistant-name">Register to use Voia</p>
+            <p className="assistant-status">Website registration unlocks voice, chat, and phone calling</p>
+          </div>
+        </div>
+      </div>
+
+      {step === "phone" ? (
+        <form className="registration-form" onSubmit={sendCode}>
+          <p className="muted-copy">No name needed. Verify your phone with a one-time code, then you can talk with Voia or call from that number.</p>
+          <label className="field">
+            <span>Phone (E.164)</span>
+            <input value={phone} onChange={(event) => setPhone(event.target.value)} autoComplete="tel" placeholder="+12125551234" required />
+          </label>
+          <label className="field">
+            <span>Email <small>optional</small></span>
+            <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" maxLength={200} />
+          </label>
+          <div className="consent-panel">
+            <label>
+              <input type="checkbox" checked={careConsent} onChange={(event) => setCareConsent(event.target.checked)} />
+              <span><strong>Care assistance</strong> — use my responses to help with care navigation. Required.</span>
+            </label>
+            <label>
+              <input type="checkbox" checked={screeningConsent} onChange={(event) => setScreeningConsent(event.target.checked)} />
+              <span><strong>Optional screening</strong> — currently off; no disease is inferred from your voice.</span>
+            </label>
+            <label>
+              <input type="checkbox" checked={smsConsent} onChange={(event) => setSmsConsent(event.target.checked)} />
+              <span>Send the verification code and later care texts by SMS. Reply STOP to opt out.</span>
+            </label>
+          </div>
+          {error && <p className="inline-error" role="alert"><CircleAlert size={15} /> {error}</p>}
+          <button className="primary-button request-button" type="submit" disabled={busy || !careConsent}>
+            {busy ? <span className="button-spinner light" /> : <Phone size={18} />}
+            {busy ? "Sending code…" : "Send verification code"}
+            {!busy && <ArrowRight size={17} />}
+          </button>
+        </form>
+      ) : (
+        <form className="registration-form" onSubmit={verifyCode}>
+          <p className="muted-copy">Enter the 6-digit code sent to {phone}.</p>
+          {demoCode && <p className="muted-copy" role="status">Demo mode code: <strong>{demoCode}</strong></p>}
+          <label className="field">
+            <span>Verification code</span>
+            <input value={code} onChange={(event) => setCode(event.target.value)} inputMode="numeric" pattern="\d{6}" placeholder="123456" required maxLength={6} />
+          </label>
+          {error && <p className="inline-error" role="alert"><CircleAlert size={15} /> {error}</p>}
+          <button className="primary-button request-button" type="submit" disabled={busy || code.length !== 6}>
+            {busy ? <span className="button-spinner light" /> : <CheckCircle2 size={18} />}
+            {busy ? "Verifying…" : "Finish registration"}
+          </button>
+          <button type="button" className="text-button" onClick={() => { setStep("phone"); setCode(""); setError(""); }}>
+            Use a different number
+          </button>
+        </form>
+      )}
+      <p className="booking-disclaimer"><LockKeyhole size={13} /> After registration, call Voia only from this same phone number.</p>
+    </section>
+  );
 }
 
 function AssistantCard({
@@ -76,19 +260,22 @@ function AssistantCard({
   setCareConsent,
   screeningConsent,
   setScreeningConsent,
+  registered,
 }: {
   careConsent: boolean;
   setCareConsent: (value: boolean) => void;
   screeningConsent: boolean;
   setScreeningConsent: (value: boolean) => void;
+  registered: RegisteredPatient;
 }) {
   const [tab, setTab] = useState<"voice" | "chat">("voice");
-  const [language, setLanguage] = useState("English");
+  const [language, setLanguage] = useState<AppLanguage>("English");
   const [messages, setMessages] = useState<ChatMessage[]>([initialMessage]);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
   const pendingText = useRef("");
   const lastSent = useRef("");
+  const languageRef = useRef<AppLanguage>("English");
   const transcriptEnd = useRef<HTMLDivElement>(null);
 
   const conversation = useConversation({
@@ -129,12 +316,13 @@ function AssistantCard({
     }
   }, [conversation, conversation.status]);
 
-  async function startSession(textOnly: boolean, firstText?: string) {
+  async function startSession(textOnly: boolean, firstText?: string, sessionLanguage = language) {
     if (!careConsent) {
       setError("Please agree to care-assistance data use before starting.");
       return;
     }
     setError("");
+    languageRef.current = sessionLanguage;
     if (firstText) pendingText.current = firstText;
 
     try {
@@ -142,18 +330,35 @@ function AssistantCard({
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         stream.getTracks().forEach((track) => track.stop());
       }
-      const response = await fetch("/api/elevenlabs/token", { method: "POST" });
-      const payload = (await response.json()) as SessionPayload & { error?: string };
+      const response = await fetch("/api/elevenlabs/token", {
+        method: "POST",
+        credentials: "include",
+      });
+      const payload = (await response.json()) as SessionPayload & {
+        error?: string;
+        code?: string;
+      };
+      if (response.status === 401 || payload.code === "registration_required") {
+        throw new Error("Register on the website before using voice or chat.");
+      }
       if (!response.ok) throw new Error(payload.error ?? "Assistant unavailable");
 
       const shared = {
         textOnly,
         dynamicVariables: {
-          preferred_language: language,
+          preferred_language: sessionLanguage,
           screening_consent: screeningConsent,
           care_data_consent: careConsent,
+          registered: true,
+          phone_last4: registered.phoneLast4,
           channel: textOnly ? "web_chat" : "web_voice",
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        },
+        overrides: {
+          agent: {
+            language: languageCode(sessionLanguage),
+            firstMessage: firstMessageForLanguage(sessionLanguage),
+          },
         },
       };
       if (payload.mode === "private") {
@@ -173,6 +378,27 @@ function AssistantCard({
       pendingText.current = "";
       setError(caught instanceof Error ? caught.message : "Assistant unavailable");
     }
+  }
+
+  async function changeLanguage(next: AppLanguage) {
+    setLanguage(next);
+    languageRef.current = next;
+    setMessages([{ id: "welcome", role: "agent", text: welcomeForLanguage(next) }]);
+
+    if (conversation.status !== "connected" && conversation.status !== "connecting") return;
+
+    const wasTextOnly = tab === "chat";
+    conversation.endSession();
+    // Restart so ASR/TTS language override applies for the rest of the call.
+    window.setTimeout(() => {
+      void startSession(
+        wasTextOnly,
+        next === "Español"
+          ? "Por favor continúa en español."
+          : "Please continue in English.",
+        next,
+      );
+    }, 350);
   }
 
   function sendMessage(event: FormEvent) {
@@ -196,9 +422,15 @@ function AssistantCard({
     ? "Connecting…"
     : connected
       ? speaking
-        ? "Voia is speaking"
-        : "Listening"
-      : "Ready when you are";
+        ? language === "Español"
+          ? "Voia está hablando"
+          : "Voia is speaking"
+        : language === "Español"
+          ? "Escuchando"
+          : "Listening"
+      : language === "Español"
+        ? "Lista cuando quieras"
+        : "Ready when you are";
 
   return (
     <section className="assistant-card" id="assistant" aria-label="Talk with Voia">
@@ -213,12 +445,12 @@ function AssistantCard({
         <label className="language-select">
           <Globe2 size={15} aria-hidden="true" />
           <span className="sr-only">Preferred language</span>
-          <select value={language} onChange={(event) => setLanguage(event.target.value)}>
-            <option>English</option>
-            <option>Español</option>
-            <option>हिन्दी</option>
-            <option>Français</option>
-            <option>普通话</option>
+          <select
+            value={language}
+            onChange={(event) => void changeLanguage(event.target.value as AppLanguage)}
+          >
+            <option value="English">English</option>
+            <option value="Español">Español</option>
           </select>
         </label>
       </div>
@@ -260,7 +492,17 @@ function AssistantCard({
             </button>
           </div>
           <p className="voice-prompt">
-            {connected ? (speaking ? "Speaking in your preferred language" : "Go ahead — I’m listening") : "Tap to talk with Voia"}
+            {connected
+              ? speaking
+                ? language === "Español"
+                  ? "Hablando en español"
+                  : "Speaking in English"
+                : language === "Español"
+                  ? "Adelante — te escucho"
+                  : "Go ahead — I’m listening"
+              : language === "Español"
+                ? "Toca para hablar con Voia"
+                : "Tap to talk with Voia"}
           </p>
           <p className="voice-subprompt">Short turns · You can stop anytime</p>
           <div className="voice-suggestion-row" aria-label="Things you can ask">
@@ -284,7 +526,7 @@ function AssistantCard({
               id="chat-message"
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              placeholder="Type what you need help with…"
+              placeholder={language === "Español" ? "Escribe en qué necesitas ayuda…" : "Type what you need help with…"}
               maxLength={800}
             />
             <button type="submit" aria-label="Send message" disabled={!draft.trim() || connecting}>
@@ -311,7 +553,7 @@ function AssistantCard({
             checked={screeningConsent}
             onChange={(event) => setScreeningConsent(event.target.checked)}
           />
-          <span><strong>Optional screening</strong> — store screening results when a validated tool is available.</span>
+          <span><strong>Optional screening</strong> — currently off; no disease is inferred from your voice. Consent is stored for when a validated tool is available.</span>
         </label>
         <p><LockKeyhole size={13} /> Screening is currently off. Declining never blocks appointment help.</p>
       </div>
@@ -323,10 +565,12 @@ function BookingWorkspace({
   careConsent,
   setCareConsent,
   screeningConsent,
+  registered,
 }: {
   careConsent: boolean;
   setCareConsent: (value: boolean) => void;
   screeningConsent: boolean;
+  registered: RegisteredPatient | null;
 }) {
   const [specialty, setSpecialty] = useState<Specialty>("Primary care");
   const [location, setLocation] = useState("");
@@ -338,8 +582,8 @@ function BookingWorkspace({
   const [selectedProvider, setSelectedProvider] = useState<Provider | undefined>();
   const [searching, setSearching] = useState(false);
   const [searchAttempted, setSearchAttempted] = useState(false);
-  const [fullName, setFullName] = useState("");
-  const [phone, setPhone] = useState("");
+  const [issueKind, setIssueKind] = useState<"new" | "continuation">("new");
+  const [phone, setPhone] = useState(registered?.phone ?? "");
   const [email, setEmail] = useState("");
   const [smsConsent, setSmsConsent] = useState(false);
   const [error, setError] = useState("");
@@ -349,8 +593,14 @@ function BookingWorkspace({
     id: string;
     status: string;
     disclaimer: string;
+    issueKind?: "new" | "continuation";
     sms: { sent: boolean; status: string };
+    screening?: { ran: boolean; diseaseInferred: boolean; note: string };
   } | null>(null);
+
+  useEffect(() => {
+    if (registered?.phone) setPhone(registered.phone);
+  }, [registered?.phone]);
 
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const looksUrgent = /\b(can'?t breathe|severe chest pain|face droop|one-sided weakness|kill myself|suicid|seizure)\b/i;
@@ -391,6 +641,11 @@ function BookingWorkspace({
     event.preventDefault();
     setError("");
     setEmergency("");
+    if (!registered) {
+      setError("Register on the website before requesting an appointment.");
+      scrollTo("assistant");
+      return;
+    }
     if (!careConsent) {
       setError("Care-assistance consent is required to save this request.");
       return;
@@ -400,14 +655,15 @@ function BookingWorkspace({
       const response = await fetch("/api/appointments", {
         method: "POST",
         headers: { "content-type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
-          fullName,
           phone,
           email,
           location,
           specialty,
           reason,
           reasonCategory: specialty,
+          issueKind,
           modality,
           requestedDate: date,
           timeWindow,
@@ -453,9 +709,14 @@ function BookingWorkspace({
           <span><MapPin size={16} /> {selectedProvider?.name ?? location}</span>
         </div>
         <p className="muted-copy">
+          Recorded as {result.issueKind === "continuation" ? "a continuation of a prior concern" : "a new concern"}.
+          {" "}
+          {result.screening?.note ?? "Voice disease screening did not run—no disease was inferred from your voice."}
+        </p>
+        <p className="muted-copy">
           {smsConsent
             ? result.sms.sent
-              ? "Generic SMS receipt queued."
+              ? "SMS follow-up queued (includes screening status)."
               : "SMS could not be sent; keep this request ID."
             : "No SMS requested. Keep this request ID."}
         </p>
@@ -488,6 +749,17 @@ function BookingWorkspace({
             <span>What’s going on?</span>
             <textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Briefly describe the reason for your visit and when it started." maxLength={1000} required />
           </label>
+          <fieldset className="field full issue-kind">
+            <legend>Is this a new concern or a continuation?</legend>
+            <label>
+              <input type="radio" name="issueKind" checked={issueKind === "new"} onChange={() => setIssueKind("new")} />
+              <span>New — first time raising this concern</span>
+            </label>
+            <label>
+              <input type="radio" name="issueKind" checked={issueKind === "continuation"} onChange={() => setIssueKind("continuation")} />
+              <span>Continuation — follow-up on something ongoing</span>
+            </label>
+          </fieldset>
         </div>
         {emergency && <div className="emergency-card" role="alert"><CircleAlert size={20} /><div><strong>Get urgent help now</strong><p>{emergency}</p></div></div>}
         <button className="search-button" type="button" onClick={() => void findProviders()} disabled={searching || !location.trim()}>
@@ -530,16 +802,18 @@ function BookingWorkspace({
           <div><h3>Your contact details</h3><p>Used only for this care request and permitted follow-up.</p></div>
         </div>
         <div className="field-grid">
-          <label className="field"><span>Full name</span><input value={fullName} onChange={(event) => setFullName(event.target.value)} autoComplete="name" required maxLength={120} /></label>
-          <label className="field"><span>Phone (E.164)</span><input value={phone} onChange={(event) => setPhone(event.target.value)} autoComplete="tel" placeholder="+12125551234" required /></label>
-          <label className="field full"><span>Email <small>optional</small></span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" maxLength={200} /></label>
+          <label className="field"><span>Phone (E.164)</span><input value={phone} onChange={(event) => setPhone(event.target.value)} autoComplete="tel" placeholder="+12125551234" required readOnly={Boolean(registered?.phone)} /></label>
+          <label className="field"><span>Email <small>optional</small></span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" maxLength={200} /></label>
         </div>
+        {!registered && (
+          <p className="form-error" role="status"><CircleAlert size={16} /> Register above before sending a care request.</p>
+        )}
         <div className="booking-consents">
           <label><input type="checkbox" checked={careConsent} onChange={(event) => setCareConsent(event.target.checked)} /><span>I agree to use and store the minimum information needed for this care request. <strong>Required</strong></span></label>
-          <label><input type="checkbox" checked={smsConsent} onChange={(event) => setSmsConsent(event.target.checked)} /><span>Send a generic SMS receipt. Standard rates may apply. Reply STOP to opt out.</span></label>
+          <label><input type="checkbox" checked={smsConsent} onChange={(event) => setSmsConsent(event.target.checked)} /><span>Send an SMS follow-up confirming issue type and that voice disease screening did not run. Standard rates may apply. Reply STOP to opt out.</span></label>
         </div>
         {error && <p className="form-error" role="alert"><CircleAlert size={16} /> {error}</p>}
-        <button className="primary-button request-button" type="submit" disabled={submitting || !careConsent}>
+        <button className="primary-button request-button" type="submit" disabled={submitting || !careConsent || !registered}>
           {submitting ? <span className="button-spinner light" /> : <CalendarDays size={18} />}
           {submitting ? "Saving request…" : "Request appointment"}
           {!submitting && <ArrowRight size={17} />}
@@ -602,6 +876,50 @@ function BookingWorkspace({
 export function VoiaExperience() {
   const [careConsent, setCareConsent] = useState(false);
   const [screeningConsent, setScreeningConsent] = useState(false);
+  const [registered, setRegistered] = useState<RegisteredPatient | null>(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const response = await fetch("/api/auth/session", { credentials: "include" });
+        const payload = (await response.json()) as {
+          registered?: boolean;
+          patient?: {
+            phoneLast4: string;
+            careDataGranted: boolean;
+            screeningGranted: boolean;
+            smsGranted: boolean;
+          };
+        };
+        if (!active) return;
+        if (payload.registered && payload.patient) {
+          setCareConsent(payload.patient.careDataGranted);
+          setScreeningConsent(payload.patient.screeningGranted);
+          setRegistered({
+            phone: "",
+            phoneLast4: payload.patient.phoneLast4,
+            careDataGranted: payload.patient.careDataGranted,
+            screeningGranted: payload.patient.screeningGranted,
+            smsGranted: payload.patient.smsGranted,
+          });
+        }
+      } catch {
+        // Keep registration gate visible when session lookup fails.
+      } finally {
+        if (active) setSessionChecked(true);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function signOut() {
+    await fetch("/api/auth/session", { method: "DELETE", credentials: "include" });
+    setRegistered(null);
+  }
 
   return (
     <main>
@@ -613,13 +931,19 @@ export function VoiaExperience() {
         <nav aria-label="Main navigation">
           <a href="#how-it-works">How it works</a>
           <a href="#safety">Safety & privacy</a>
-          <button type="button" onClick={() => scrollTo("find-care")}>Find care <ArrowRight size={15} /></button>
+          {registered ? (
+            <button type="button" onClick={() => void signOut()}>
+              Sign out (••{registered.phoneLast4})
+            </button>
+          ) : (
+            <button type="button" onClick={() => scrollTo("assistant")}>Register <ArrowRight size={15} /></button>
+          )}
         </nav>
       </header>
 
       <div className="prototype-banner" role="note">
         <ShieldCheck size={15} />
-        <span><strong>Protected preview:</strong> not for emergencies or real private health information until compliance setup is complete.</span>
+        <span><strong>Protected preview:</strong> register on this site before voice, chat, or phone calling. Not for emergencies.</span>
       </div>
 
       <section className="hero" id="top">
@@ -627,15 +951,17 @@ export function VoiaExperience() {
           <p className="eyebrow"><Sparkles size={14} /> Multilingual care navigation</p>
           <h1>Care starts with<br /><em>being heard.</em></h1>
           <p className="hero-lede">
-            Speak or type naturally. Voia helps you find the right kind of clinician and send a clear appointment request — calmly, in your language.
+            Register once with your phone, then speak or type naturally. Voia helps you find the right kind of clinician and send a clear appointment request.
           </p>
           <div className="hero-actions">
-            <button className="primary-button" type="button" onClick={() => scrollTo("assistant")}><Mic size={18} /> Talk with Voia <ArrowRight size={17} /></button>
+            <button className="primary-button" type="button" onClick={() => scrollTo("assistant")}>
+              <Mic size={18} /> {registered ? "Talk with Voia" : "Register to talk"} <ArrowRight size={17} />
+            </button>
             <button className="text-button" type="button" onClick={() => scrollTo("find-care")}>Find care nearby <ChevronRight size={16} /></button>
           </div>
           <div className="hero-proof" aria-label="Voia features">
+            <span><CheckCircle2 size={16} /> Register first</span>
             <span><CheckCircle2 size={16} /> Voice + chat</span>
-            <span><CheckCircle2 size={16} /> Multilingual</span>
             <span><CheckCircle2 size={16} /> Screening is never diagnosis</span>
           </div>
           <div className="emergency-note"><CircleAlert size={18} /><p><strong>Possible emergency?</strong> Call your local emergency number now. Don’t wait for this service.</p></div>
@@ -644,21 +970,36 @@ export function VoiaExperience() {
         <div className="assistant-wrap">
           <div className="assistant-backdrop backdrop-one" />
           <div className="assistant-backdrop backdrop-two" />
-          <ConversationProvider>
-            <AssistantCard
+          {!sessionChecked ? (
+            <section className="assistant-card" id="assistant" aria-label="Checking registration">
+              <p className="assistant-status">Checking registration…</p>
+            </section>
+          ) : registered ? (
+            <ConversationProvider>
+              <AssistantCard
+                careConsent={careConsent}
+                setCareConsent={setCareConsent}
+                screeningConsent={screeningConsent}
+                setScreeningConsent={setScreeningConsent}
+                registered={registered}
+              />
+            </ConversationProvider>
+          ) : (
+            <RegistrationPanel
               careConsent={careConsent}
               setCareConsent={setCareConsent}
               screeningConsent={screeningConsent}
               setScreeningConsent={setScreeningConsent}
+              onRegistered={setRegistered}
             />
-          </ConversationProvider>
-          <div className="privacy-chip"><LockKeyhole size={14} /> Consent before storage</div>
+          )}
+          <div className="privacy-chip"><LockKeyhole size={14} /> Register before calling</div>
         </div>
       </section>
 
       <section className="capability-strip" aria-label="Service capabilities">
         <div><Volume2 size={20} /><span><strong>Natural conversation</strong><small>Short, calm, one question at a time</small></span></div>
-        <div><Globe2 size={20} /><span><strong>Your preferred language</strong><small>Voice and text support</small></span></div>
+        <div><Globe2 size={20} /><span><strong>English or Español</strong><small>Switch anytime in the assistant</small></span></div>
         <div><Stethoscope size={20} /><span><strong>Right specialty</strong><small>Focused provider options</small></span></div>
         <div><CalendarDays size={20} /><span><strong>Clear next step</strong><small>Request status, never false confirmation</small></span></div>
       </section>
@@ -669,7 +1010,12 @@ export function VoiaExperience() {
           <h2>From concern to a clear next step.</h2>
           <p>Share what you need, compare a few public listings, then send a request for provider follow-up.</p>
         </div>
-        <BookingWorkspace careConsent={careConsent} setCareConsent={setCareConsent} screeningConsent={screeningConsent} />
+        <BookingWorkspace
+          careConsent={careConsent}
+          setCareConsent={setCareConsent}
+          screeningConsent={screeningConsent}
+          registered={registered}
+        />
       </section>
 
       <section className="how-section" id="how-it-works">
@@ -678,9 +1024,9 @@ export function VoiaExperience() {
           <h2>Care navigation without the maze.</h2>
         </div>
         <div className="steps-grid">
-          <article><span>01</span><div className="step-icon"><MessageCircle size={22} /></div><h3>Tell Voia what you need</h3><p>Use voice or chat. You control optional screening consent separately.</p></article>
-          <article><span>02</span><div className="step-icon"><Search size={22} /></div><h3>Review focused options</h3><p>See a small set of public provider listings near your preferred location.</p></article>
-          <article><span>03</span><div className="step-icon"><Phone size={22} /></div><h3>Wait for confirmation</h3><p>Your request remains pending until a provider confirms a real appointment slot.</p></article>
+          <article><span>01</span><div className="step-icon"><Phone size={22} /></div><h3>Register on the website</h3><p>Verify your phone with a one-time code. Calling and chat unlock after registration.</p></article>
+          <article><span>02</span><div className="step-icon"><MessageCircle size={22} /></div><h3>Tell Voia what you need</h3><p>Use voice or chat. You control optional screening consent separately.</p></article>
+          <article><span>03</span><div className="step-icon"><Search size={22} /></div><h3>Request provider follow-up</h3><p>Your request remains pending until a provider confirms a real appointment slot.</p></article>
         </div>
       </section>
 
@@ -694,7 +1040,7 @@ export function VoiaExperience() {
         <div className="safety-list">
           <article><span><CircleAlert size={20} /></span><div><h3>Emergencies come first</h3><p>Red-flag language stops routine booking and directs the patient to local emergency help.</p></div></article>
           <article><span><ShieldCheck size={20} /></span><div><h3>Screening stays off by default</h3><p>No disease inference from voice until a validated model, consent, and clinical controls exist.</p></div></article>
-          <article><span><LockKeyhole size={20} /></span><div><h3>Minimum necessary data</h3><p>No raw call audio or transcript stored by this app. Contact data is encrypted when live mode is enabled.</p></div></article>
+          <article><span><LockKeyhole size={20} /></span><div><h3>Register before calling</h3><p>Website registration is required before voice, chat, or phone. Unregistered callers are asked to register first.</p></div></article>
         </div>
       </section>
 

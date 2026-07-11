@@ -55,10 +55,23 @@ export async function sendSms(to: string, body: string): Promise<TwilioSendResul
 export async function sendAppointmentReceipt(
   phone: string,
   appointmentId: string,
+  issueKind: "new" | "continuation",
 ): Promise<TwilioSendResult> {
+  const kindLabel = issueKind === "continuation" ? "follow-up concern" : "new concern";
   return sendSms(
     phone,
-    `Arya Health received appointment request ${appointmentId}. This is not yet a confirmed booking. Reply STOP to opt out.`,
+    `Arya Health received request ${appointmentId} (${kindLabel}). Voice disease screening did not run—no disease was inferred from your voice. Not a confirmed booking. Reply STOP to opt out.`,
+  );
+}
+
+export async function sendConversationFollowUp(
+  phone: string,
+  issueKind: "new" | "continuation",
+): Promise<TwilioSendResult> {
+  const kindLabel = issueKind === "continuation" ? "a continuation of a prior concern" : "a new concern";
+  return sendSms(
+    phone,
+    `Arya Health: Thanks for talking with Voia. We recorded this as ${kindLabel}. Voice disease screening did not run—no disease was inferred from your voice. Reply STOP to opt out.`,
   );
 }
 

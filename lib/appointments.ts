@@ -1,5 +1,5 @@
 import { insertAppointment, insertNotification } from "@/db/repository";
-import { encryptJson, initials, patientKey } from "./crypto";
+import { encryptJson, patientKey, patientLabel } from "./crypto";
 import { getEnv } from "./runtime-env";
 import { assessEmergency } from "./safety";
 import { sendAppointmentReceipt } from "./twilio";
@@ -27,7 +27,6 @@ export async function createAppointmentRequest(input: AppointmentRequestInput) {
 
   const key = await patientKey(input.phone, input.email || undefined);
   const encryptedContact = await encryptJson({
-    fullName: input.fullName,
     phone: input.phone,
     email: input.email || undefined,
   });
@@ -40,7 +39,7 @@ export async function createAppointmentRequest(input: AppointmentRequestInput) {
     {
       id,
       patientKey: key,
-      patientInitials: initials(input.fullName),
+      patientInitials: patientLabel(input.phone),
       encryptedContact,
       specialty: input.specialty,
       providerId: input.provider?.id,
@@ -55,6 +54,7 @@ export async function createAppointmentRequest(input: AppointmentRequestInput) {
       timeWindow: input.timeWindow,
       timezone: input.timezone,
       reasonCategory: input.reasonCategory,
+      issueKind: input.issueKind,
       status: "pending_provider",
       source: input.source,
     },
@@ -71,7 +71,7 @@ export async function createAppointmentRequest(input: AppointmentRequestInput) {
   let sms: { sent: boolean; status: string } = { sent: false, status: "not_requested" };
   if (input.consent.sms) {
     try {
-      const result = await sendAppointmentReceipt(input.phone, id);
+      const result = await sendAppointmentReceipt(input.phone, id, input.issueKind);
       sms = result.configured
         ? { sent: true, status: result.status }
         : { sent: false, status: "not_configured" };
@@ -94,7 +94,13 @@ export async function createAppointmentRequest(input: AppointmentRequestInput) {
     requestedDate: row.requestedDate,
     timeWindow: row.timeWindow,
     timezone: row.timezone,
+    issueKind: row.issueKind,
     sms,
+    screening: {
+      ran: false,
+      diseaseInferred: false,
+      note: "Voice disease screening is disabled. No disease was inferred from the caller's voice.",
+    },
     disclaimer:
       "Request received. Appointment is not booked until the provider confirms a specific date and time.",
   };

@@ -1,5 +1,7 @@
 import { registerTwilioCall } from "@/lib/elevenlabs";
 import { escapeXml, xmlResponse } from "@/lib/http";
+import { isPhoneRegistered } from "@/lib/patient-auth";
+import { getEnv } from "@/lib/runtime-env";
 import { validateTwilioWebhook } from "@/lib/twilio";
 
 export async function POST(request: Request) {
@@ -11,9 +13,20 @@ export async function POST(request: Request) {
     return new Response("Forbidden", { status: 403 });
   }
 
+  const from = params.From ?? "";
+  const site = getEnv("APP_BASE_URL")?.replace(/^https?:\/\//, "").replace(/\/$/, "") ?? "the Arya Health website";
+
   try {
+    if (!from || !(await isPhoneRegistered(from))) {
+      return xmlResponse(
+        `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${escapeXml(
+          `Thanks for calling Voia. Please register on ${site} with this phone number first, then call again. If this is an emergency, hang up and dial your local emergency number now.`,
+        )}</Say></Response>`,
+      );
+    }
+
     const twiml = await registerTwilioCall({
-      from: params.From ?? "",
+      from,
       to: params.To ?? "",
       direction: params.Direction ?? "inbound",
     });

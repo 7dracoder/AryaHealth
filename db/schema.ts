@@ -21,6 +21,7 @@ export const appointmentRequests = sqliteTable(
     timeWindow: text("time_window").notNull(),
     timezone: text("timezone").notNull(),
     reasonCategory: text("reason_category").notNull(),
+    issueKind: text("issue_kind").notNull().default("new"),
     status: text("status").notNull().default("pending_provider"),
     source: text("source").notNull().default("web"),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -84,3 +85,38 @@ export const rateLimits = sqliteTable("rate_limits", {
   count: integer("count").notNull(),
   windowStartedAt: integer("window_started_at").notNull(),
 });
+
+export const registeredPatients = sqliteTable(
+  "registered_patients",
+  {
+    patientKey: text("patient_key").primaryKey(),
+    phoneHash: text("phone_hash").notNull().unique(),
+    phoneLast4: text("phone_last4").notNull(),
+    encryptedContact: text("encrypted_contact"),
+    careDataGranted: integer("care_data_granted", { mode: "boolean" }).notNull(),
+    screeningGranted: integer("screening_granted", { mode: "boolean" }).notNull(),
+    smsGranted: integer("sms_granted", { mode: "boolean" }).notNull(),
+    policyVersion: text("policy_version").notNull(),
+    verifiedAt: text("verified_at").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [index("registered_phone_hash_idx").on(table.phoneHash)],
+);
+
+export const otpChallenges = sqliteTable(
+  "otp_challenges",
+  {
+    id: text("id").primaryKey(),
+    phoneHash: text("phone_hash").notNull(),
+    codeHash: text("code_hash").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    careDataGranted: integer("care_data_granted", { mode: "boolean" }).notNull(),
+    screeningGranted: integer("screening_granted", { mode: "boolean" }).notNull(),
+    smsGranted: integer("sms_granted", { mode: "boolean" }).notNull(),
+    email: text("email"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [index("otp_phone_hash_idx").on(table.phoneHash)],
+);

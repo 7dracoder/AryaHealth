@@ -66,7 +66,7 @@ a { color: inherit; }
 .assistant-name { margin: 0; font-size: 13px; font-weight: 800; }
 .assistant-status { margin: 3px 0 0; color: var(--ink-soft); font-size: 11px; }
 .language-select { height: 34px; border: 1px solid var(--line); border-radius: 999px; padding: 0 9px; display: flex; align-items: center; gap: 5px; color: var(--ink-soft); }
-.language-select select { max-width: 82px; border: 0; background: transparent; outline: 0; color: var(--ink-soft); font-size: 11px; }
+.language-select select { max-width: 96px; border: 0; background: transparent; outline: 0; color: var(--ink-soft); font-size: 11px; }
 .channel-tabs { margin-top: 20px; padding: 4px; background: #edf2ee; border-radius: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
 .channel-tabs button { height: 36px; border: 0; border-radius: 9px; background: transparent; color: #60736f; display: flex; justify-content: center; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; cursor: pointer; }
 .channel-tabs button.active { color: var(--forest); background: white; box-shadow: 0 2px 8px rgba(30,70,65,.08); }
@@ -101,6 +101,10 @@ a { color: inherit; }
 .consent-panel input, .booking-consents input { width: 15px; height: 15px; margin: 0; accent-color: var(--forest); flex: 0 0 auto; }
 .consent-panel strong, .booking-consents strong { color: var(--ink); }
 .consent-panel > p { margin: 1px 0 0 24px; color: #7a8986; font-size: 9px; display: flex; gap: 5px; align-items: center; }
+.registration-form { display: grid; gap: 14px; padding: 4px 2px 8px; }
+.registration-form .field { gap: 6px; }
+.registration-form .primary-button { width: 100%; justify-content: center; }
+.registration-card .booking-disclaimer { display: flex; align-items: center; gap: 6px; margin-top: 14px; }
 .privacy-chip { position: absolute; z-index: 3; right: 28px; bottom: -27px; background: white; border: 1px solid var(--line); box-shadow: 0 8px 25px rgba(23,76,72,.11); border-radius: 999px; padding: 9px 13px; color: #56716c; display: flex; align-items: center; gap: 7px; font-size: 10px; font-weight: 700; }
 
 .capability-strip { max-width: 1160px; margin: 0 auto 20px; padding: 23px 28px; border-block: 1px solid #dce4dc; display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; }
@@ -127,6 +131,10 @@ a { color: inherit; }
 .field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
 .field > span { color: #4d625f; font-size: 11px; font-weight: 700; }
 .field small { font-weight: 500; color: #8a9895; }
+.issue-kind { border: 0; margin: 0; padding: 0; gap: 10px; }
+.issue-kind legend { color: #4d625f; font-size: 11px; font-weight: 700; margin-bottom: 2px; padding: 0; }
+.issue-kind label { display: flex; align-items: flex-start; gap: 9px; color: #5c6f6c; font-size: 12px; line-height: 1.4; cursor: pointer; }
+.issue-kind input { width: 15px; height: 15px; margin: 2px 0 0; accent-color: var(--forest); flex: 0 0 auto; }
 .field input, .field select, .field textarea, .input-with-icon { width: 100%; border: 1px solid #d9e2dc; border-radius: 11px; background: #fbfcf8; color: var(--ink); outline: 0; transition: border .15s, box-shadow .15s; }
 .field input, .field select { height: 43px; padding: 0 12px; }
 .field textarea { min-height: 96px; resize: vertical; padding: 11px 12px; line-height: 1.5; }

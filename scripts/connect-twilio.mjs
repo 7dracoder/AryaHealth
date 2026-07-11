@@ -18,7 +18,7 @@ if (!apply) {
   console.log("Dry run only. No phone configuration changed.");
   console.log(`Agent: ${agentId}`);
   console.log(`Phone: ${phoneNumber || "<missing TWILIO_PHONE_NUMBER>"}`);
-  console.log("Plan: import Twilio number into ElevenLabs for voice; keep SMS on app webhook.");
+  console.log("Plan: route Twilio voice through app webhook (registration gate), keep SMS on app webhook.");
   console.log(`Missing: ${missing.length ? missing.join(", ") : "none"}`);
   console.log("Run npm run setup:phone -- --apply after review.");
   process.exit(0);
@@ -70,6 +70,8 @@ const incomingSid = lookupPayload.incoming_phone_numbers?.[0]?.sid;
 if (!lookup.ok || !incomingSid) throw new Error("Twilio number lookup failed");
 
 const smsConfig = new URLSearchParams({
+  VoiceUrl: `${appBaseUrl}/api/webhooks/twilio/voice`,
+  VoiceMethod: "POST",
   SmsUrl: `${appBaseUrl}/api/webhooks/twilio/sms`,
   SmsMethod: "POST",
 });
@@ -84,7 +86,9 @@ const update = await fetch(
     body: smsConfig,
   },
 );
-if (!update.ok) throw new Error(`Twilio SMS webhook update failed (${update.status})`);
+if (!update.ok) throw new Error(`Twilio voice/SMS webhook update failed (${update.status})`);
 
-console.log(`Connected ${phoneNumber} to ElevenLabs agent ${agentId} for voice.`);
+console.log(`Connected ${phoneNumber} voice through app registration gate to ElevenLabs agent ${agentId}.`);
+console.log(`Configured Twilio Voice webhook at ${appBaseUrl}/api/webhooks/twilio/voice.`);
 console.log(`Configured Twilio SMS webhook at ${appBaseUrl}/api/webhooks/twilio/sms.`);
+console.log("Unregistered callers are told to register on the website before calling again.");
