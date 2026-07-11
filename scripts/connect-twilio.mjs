@@ -36,7 +36,12 @@ async function elevenlabs(path, options = {}) {
   });
   const text = await response.text();
   const payload = text ? JSON.parse(text) : {};
-  if (!response.ok) throw new Error(`ElevenLabs phone setup failed (${response.status})`);
+  if (!response.ok) {
+    const detail = payload.detail || payload.message || payload.error;
+    throw new Error(
+      `ElevenLabs phone setup failed (${response.status})${detail ? `: ${JSON.stringify(detail)}` : ""}`,
+    );
+  }
   return payload;
 }
 

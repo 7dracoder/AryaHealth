@@ -37,7 +37,12 @@ async function api(path, options = {}) {
   });
   const text = await response.text();
   const payload = text ? JSON.parse(text) : {};
-  if (!response.ok) throw new Error(`ElevenLabs ${path} failed (${response.status})`);
+  if (!response.ok) {
+    const detail = payload.detail || payload.message || payload.error;
+    throw new Error(
+      `ElevenLabs ${path} failed (${response.status})${detail ? `: ${JSON.stringify(detail)}` : ""}`,
+    );
+  }
   return payload;
 }
 
@@ -111,21 +116,21 @@ const tools = [
       specialty,
       reason: { type: "string", description: "Brief patient-stated visit reason used for emergency gate; not stored as free text." },
       reasonCategory: { type: "string", description: "Short non-diagnostic reason category." },
-      modality: { type: "string", enum: ["in_person", "telehealth", "either"] },
+      modality: { type: "string", description: "Requested visit format.", enum: ["in_person", "telehealth", "either"] },
       requestedDate: { type: "string", description: "Preferred date in YYYY-MM-DD format." },
-      timeWindow: { type: "string", enum: ["morning", "afternoon", "evening", "anytime"] },
+      timeWindow: { type: "string", description: "Patient's preferred time window.", enum: ["morning", "afternoon", "evening", "anytime"] },
       timezone: { type: "string", description: "IANA timezone, such as America/New_York." },
       provider: {
         type: "object",
         description: "Optional selected public provider listing.",
         properties: {
-          id: { type: "string" },
-          name: { type: "string" },
-          facilityName: { type: "string" },
-          address: { type: "string" },
-          phone: { type: "string" },
-          website: { type: "string" },
-          categories: { type: "array", items: { type: "string" } },
+          id: { type: "string", description: "Provider listing identifier." },
+          name: { type: "string", description: "Provider or clinic name." },
+          facilityName: { type: "string", description: "Facility category or name." },
+          address: { type: "string", description: "Public provider address." },
+          phone: { type: "string", description: "Public provider phone number." },
+          website: { type: "string", description: "Public provider website URL." },
+          categories: { type: "array", description: "Public provider categories.", items: { type: "string", description: "One provider category." } },
         },
       },
       consent: {
